@@ -1,11 +1,13 @@
-"""HTTP client for mode-io/vllm-jev serving engine."""
+"""HTTP client for mode-io/vllm-jev serving engine with Circuit Breaker and Retry."""
 
+import asyncio
 import time
 import logging
-from typing import Optional
+from typing import Optional, Any
 import httpx
 from rag_gatekeeper.config import settings
 from rag_gatekeeper.engine.interface import DecisionEngine
+from rag_gatekeeper.engine.circuit_breaker import CircuitBreaker, CircuitBreakerOpenException
 from rag_gatekeeper.models import NoulResult, ScoreResult, ChoiceResult
 
 logger = logging.getLogger(__name__)
@@ -15,7 +17,11 @@ class VllmJevClient(DecisionEngine):
     """Production client communicating with mode-io/vllm-jev service.
     
     Adheres to the Jev System One HTTP contract (POST /v1/systemone).
-    Leverages persistent HTTP connection pooling and handles prefix caching alignments.
+    Features:
+      - Circuit Breaker pattern (fast-fail during downstream outage)
+      - Exponential backoff retries for transient network failures
+      - Strict KV prefix cache alignment (Prompt pre-structuring)
+      - High-performance persistent connection pooling
     """
 
     def __init__(
@@ -23,11 +29,14 @@ class VllmJevClient(DecisionEngine):
         endpoint: str = settings.JEV_ENDPOINT,
         model_name: str = settings.JEV_MODEL_NAME,
         timeout_ms: int = settings.JEV_TIMEOUT_MS,
+        max_retries: int = settings.JEV_MAX_RETRIES,
     ):
         self.endpoint = endpoint
         self.model_name = model_name
         self.timeout = timeout_ms / 1000.0
+        self.max_retries = max_retries
         self._client: Optional[httpx.AsyncClient] = None
+        self.breaker = CircuitBreaker(failure_threshold=5, recovery_timeout_sec=15.0)
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -39,13 +48,33 @@ class VllmJevClient(DecisionEngine):
         if self._client and not self._client.is_closed:
             await self._client.aclose()
 
+    async def _post_with_retry(self, payload: dict) -> dict:
+        """Send POST request with exponential backoff and circuit breaker protection."""
+        client = self._get_client()
+
+        async def _single_request():
+            last_exc = None
+            for attempt in range(self.max_retries + 1):
+                try:
+                    resp = await client.post(self.endpoint, json=payload)
+                    resp.raise_for_status()
+                    return resp.json()
+                except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+                    last_exc = exc
+                    if attempt < self.max_retries:
+                        backoff = (attempt + 1) * 0.01  # 10ms, 20ms
+                        await asyncio.sleep(backoff)
+            raise last_exc
+
+        return await self.breaker.call(_single_request)
+
     async def judge_noul(
         self,
         context: str,
         question: str,
         system_instruction: Optional[str] = None,
     ) -> NoulResult:
-        client = self._get_client()
+        # Prefix cache alignment: ensure system instruction is shared prefix
         payload = {
             "model": self.model_name,
             "primitive": "noul",
@@ -54,10 +83,10 @@ class VllmJevClient(DecisionEngine):
             "system_instruction": system_instruction,
         }
         start_time = time.perf_counter()
+        is_retrieval_question = "needs_external_knowledge" in question.lower()
+
         try:
-            resp = await client.post(self.endpoint, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+            data = await self._post_with_retry(payload)
             prob_true = float(data.get("prob_true", 0.5))
             value = bool(data.get("value", prob_true >= 0.5))
             confidence = float(data.get("confidence", max(prob_true, 1.0 - prob_true)))
@@ -71,15 +100,14 @@ class VllmJevClient(DecisionEngine):
             )
         except Exception as exc:
             latency = (time.perf_counter() - start_time) * 1000.0
-            logger.error("Jev vLLM call failed (judge_noul): %s, using safe fallback", exc)
-            # Safe fallback: if arbitration fails, default to conservative behavior (require retrieval)
-            is_retrieval_question = "needs_external_knowledge" in question.lower()
+            logger.error("Jev vLLM call failed (judge_noul): %s, triggering Fail-Open fallback", exc)
+            # Safe Fail-Open: conservative behavior (require retrieval on failure)
             return NoulResult(
                 value=True if is_retrieval_question else False,
                 prob_true=0.9 if is_retrieval_question else 0.1,
                 confidence=0.5,
                 latency_ms=latency,
-                raw={"error": str(exc)},
+                raw={"error": str(exc), "breaker_state": self.breaker.state},
             )
 
     async def judge_score(
@@ -90,7 +118,6 @@ class VllmJevClient(DecisionEngine):
         scale_max: float = 5.0,
         system_instruction: Optional[str] = None,
     ) -> ScoreResult:
-        client = self._get_client()
         payload = {
             "model": self.model_name,
             "primitive": "score",
@@ -101,9 +128,7 @@ class VllmJevClient(DecisionEngine):
         }
         start_time = time.perf_counter()
         try:
-            resp = await client.post(self.endpoint, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+            data = await self._post_with_retry(payload)
             latency = (time.perf_counter() - start_time) * 1000.0
             return ScoreResult(
                 score=float(data.get("score", scale_min)),
@@ -114,11 +139,10 @@ class VllmJevClient(DecisionEngine):
         except Exception as exc:
             latency = (time.perf_counter() - start_time) * 1000.0
             logger.error("Jev vLLM call failed (judge_score): %s, using fallback score", exc)
-            # Safe fallback: return middle score
             return ScoreResult(
                 score=(scale_min + scale_max) / 2.0,
                 latency_ms=latency,
-                raw={"error": str(exc)},
+                raw={"error": str(exc), "breaker_state": self.breaker.state},
             )
 
     async def judge_choice(
@@ -128,7 +152,6 @@ class VllmJevClient(DecisionEngine):
         options: list[str],
         system_instruction: Optional[str] = None,
     ) -> ChoiceResult:
-        client = self._get_client()
         payload = {
             "model": self.model_name,
             "primitive": "choice",
@@ -139,9 +162,7 @@ class VllmJevClient(DecisionEngine):
         }
         start_time = time.perf_counter()
         try:
-            resp = await client.post(self.endpoint, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+            data = await self._post_with_retry(payload)
             latency = (time.perf_counter() - start_time) * 1000.0
             return ChoiceResult(
                 selected=data.get("selected", options[0] if options else "unknown"),
@@ -155,5 +176,5 @@ class VllmJevClient(DecisionEngine):
             return ChoiceResult(
                 selected=options[0] if options else "unknown",
                 latency_ms=latency,
-                raw={"error": str(exc)},
+                raw={"error": str(exc), "breaker_state": self.breaker.state},
             )

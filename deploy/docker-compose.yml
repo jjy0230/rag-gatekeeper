@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  gatekeeper:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: rag-gatekeeper
+    ports:
+      - "8080:8080"
+    environment:
+      - RAG_GK_USE_MOCK_ENGINE=true
+      - RAG_GK_HOST=0.0.0.0
+      - RAG_GK_PORT=8080
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    container_name: rag-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - gatekeeper
+    restart: unless-stopped
