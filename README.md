@@ -1,8 +1,11 @@
 # RAG-Gatekeeper: 端侧 RAG 动态短路与防幻觉网关
 
 [![CI](https://github.com/jjy0230/rag-gatekeeper/actions/workflows/ci.yml/badge.svg)](https://github.com/jjy0230/rag-gatekeeper/actions/workflows/ci.yml)
+[![Live Demo](https://img.shields.io/badge/GitHub%20Pages-Live%20Demo-success?logo=github)](https://jjy0230.github.io/rag-gatekeeper/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)](https://www.python.org/)
+
+🌐 **在线交互式演示（免安装体验）**：[https://jjy0230.github.io/rag-gatekeeper/](https://jjy0230.github.io/rag-gatekeeper/)
 
 **RAG-Gatekeeper** 是一个面向企业知识库与 AI 搜索系统的超低延迟微秒级/毫秒级智能决策网关。
 利用专为结构化定型决策研发的 **Jev System One 决策内核**（通过 [mode-io/vllm-jev](https://github.com/mode-io/vllm-jev) 加速服务），在检索前执行**检索需求仲裁与动态短路**，在检索后提供**毫秒级相关性重排过滤**，并在答案生成后充当**事实一致性阻断门禁**。
