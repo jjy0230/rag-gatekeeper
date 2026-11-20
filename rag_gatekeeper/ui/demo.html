@@ -1,991 +1,827 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="dark">
+<html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RAG-Gatekeeper: 端侧智能决策与防幻觉网关全景大屏</title>
-  <!-- Google Fonts Inter & JetBrains Mono -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-            mono: ['"JetBrains Mono"', 'monospace']
-          },
-          colors: {
-            brand: {
-              400: '#60a5fa',
-              500: '#3b82f6',
-              600: '#2563eb',
-              700: '#1d4ed8'
-            },
-            obsidian: {
-              950: '#030712',
-              900: '#0b1120',
-              850: '#0f172a',
-              800: '#1e293b',
-              700: '#334155'
-            }
-          },
-          boxShadow: {
-            'glow-blue': '0 0 25px -5px rgba(59, 130, 246, 0.3)',
-            'glow-emerald': '0 0 25px -5px rgba(16, 185, 129, 0.3)',
-            'glow-rose': '0 0 25px -5px rgba(244, 63, 94, 0.3)',
-            'glow-amber': '0 0 25px -5px rgba(245, 158, 11, 0.3)'
-          }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GATEKEEPER — Kinetic RAG Intelligence</title>
+    <!-- Exact Google Fonts from Kinetic Design -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Gaegu:wght@400;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #ffffff;
+            --fg: #111111;
+            --mint: #d7f1e1;
+            --peach: #ffe8d6;
+            --sky: #e0f2fe;
+            --lilac: #f3e8ff;
+            --shadow: rgba(0, 0, 0, 0.06) 0px 20px 50px;
         }
-      }
-    }
-  </script>
-  <style>
-    /* Custom scrollbars */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #0b1120; }
-    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #334155; }
 
-    /* Glassmorphism surfaces */
-    .glass-card {
-      background: rgba(15, 23, 42, 0.75);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-    }
-    .glass-card-hover {
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    .glass-card-hover:hover {
-      border-color: rgba(96, 165, 250, 0.35);
-      box-shadow: 0 10px 30px -10px rgba(59, 130, 246, 0.2);
-      transform: translateY(-2px);
-    }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-font-smoothing: antialiased;
+        }
 
-    /* Citation badge interactive styling */
-    .citation-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 2px;
-      padding: 1px 7px;
-      margin: 0 3px;
-      font-size: 0.72rem;
-      font-weight: 700;
-      font-family: 'JetBrains Mono', monospace;
-      border-radius: 9999px;
-      background: linear-gradient(135deg, rgba(30, 58, 138, 0.8), rgba(37, 99, 235, 0.9));
-      color: #bfdbfe;
-      border: 1px solid rgba(96, 165, 250, 0.5);
-      cursor: pointer;
-      transition: all 0.2s ease;
-      vertical-align: baseline;
-      text-decoration: none;
-      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
-    }
-    .citation-pill:hover {
-      background: linear-gradient(135deg, #2563eb, #1d4ed8);
-      color: #ffffff;
-      border-color: #93c5fd;
-      transform: scale(1.08);
-      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-    }
+        body {
+            background: var(--bg);
+            color: var(--fg);
+            font-family: 'Inter', sans-serif;
+            overflow: hidden; 
+            height: 100vh;
+            width: 100vw;
+            cursor: default;
+        }
 
-    /* Pulse animation */
-    @keyframes pulse-subtle {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.85; transform: scale(0.98); }
-    }
-    .animate-pulse-subtle {
-      animation: pulse-subtle 3s infinite ease-in-out;
-    }
+        .canvas {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
 
-    /* Mesh Background */
-    .bg-radial-mesh {
-      background-color: #030712;
-      background-image: 
-        radial-gradient(at 0% 0%, rgba(30, 58, 138, 0.22) 0px, transparent 50%),
-        radial-gradient(at 100% 0%, rgba(99, 102, 241, 0.18) 0px, transparent 50%),
-        radial-gradient(at 50% 100%, rgba(15, 23, 42, 0.9) 0px, transparent 60%);
-      background-attachment: fixed;
-    }
-  </style>
+        /* Top Navigation */
+        nav {
+            position: fixed;
+            top: 36px;
+            left: 40px;
+            right: 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .logo {
+            font-family: 'Gaegu', cursive;
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: -1px;
+            color: var(--fg);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .logo span.badge {
+            font-family: 'Inter', sans-serif;
+            font-size: 11px;
+            font-weight: 600;
+            background: #f1f5f9;
+            color: #475569;
+            padding: 3px 8px;
+            border-radius: 100px;
+            letter-spacing: 0;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 28px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #888;
+        }
+
+        .nav-links a {
+            text-decoration: none;
+            color: inherit;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--fg);
+        }
+
+        .mode-toggle-pill {
+            display: inline-flex;
+            background: #f3f4f6;
+            padding: 3px;
+            border-radius: 100px;
+            gap: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .mode-btn {
+            border: none;
+            background: transparent;
+            padding: 4px 12px;
+            border-radius: 100px;
+            cursor: pointer;
+            color: #666;
+            transition: all 0.2s;
+        }
+
+        .mode-btn.active {
+            background: #ffffff;
+            color: #111111;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+
+        /* Central Hero */
+        .hero {
+            text-align: center;
+            max-width: 580px;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .hero h1 {
+            font-family: 'Gaegu', cursive;
+            font-size: 72px;
+            line-height: 0.88;
+            margin-bottom: 24px;
+            color: var(--fg);
+            user-select: none;
+        }
+
+        .search-container {
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .search-trigger {
+            display: inline-flex;
+            align-items: center;
+            padding: 8px 12px 8px 24px;
+            background: #f5f5f5;
+            border-radius: 100px;
+            gap: 12px;
+            color: #999;
+            font-size: 14px;
+            cursor: text;
+            width: 100%;
+            max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+            transition: transform 0.3s cubic-bezier(0.23, 1, 0.32, 1), background 0.2s;
+        }
+
+        .search-trigger:hover, .search-trigger:focus-within {
+            transform: scale(1.02);
+            background: #ededed;
+        }
+
+        .search-trigger input {
+            border: none;
+            background: transparent;
+            outline: none;
+            font-size: 14px;
+            color: var(--fg);
+            font-family: 'Inter', sans-serif;
+            width: 100%;
+        }
+
+        .search-trigger button.action-run {
+            background: var(--fg);
+            color: white;
+            border: none;
+            border-radius: 100px;
+            padding: 8px 18px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            shrink: 0;
+        }
+
+        .search-trigger button.action-run:hover {
+            transform: scale(1.05);
+            background: #000;
+        }
+
+        /* Preset Pills */
+        .preset-pills {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+            user-select: none;
+        }
+
+        .preset-btn {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            color: #4b5563;
+            padding: 6px 14px;
+            border-radius: 100px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+        }
+
+        .preset-btn:hover {
+            transform: translateY(-2px);
+            border-color: #111111;
+            color: #111111;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+        }
+
+        .preset-btn.active {
+            background: #111111;
+            color: #ffffff;
+            border-color: #111111;
+        }
+
+        /* Kinetic Draggable Cards */
+        .card {
+            position: absolute;
+            background: white;
+            padding: 24px;
+            border-radius: 32px;
+            box-shadow: var(--shadow);
+            width: 250px;
+            transition: transform 0.1s ease-out, box-shadow 0.2s ease;
+            cursor: grab;
+            user-select: none;
+        }
+
+        .card:active { cursor: grabbing; }
+
+        .card-label {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 100px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 14px;
+        }
+
+        .card h3 {
+            font-size: 18px;
+            font-weight: 600;
+            line-height: 1.3;
+            margin-bottom: 6px;
+        }
+
+        .card p {
+            font-size: 13px;
+            color: #666;
+            line-height: 1.5;
+        }
+
+        .stat {
+            margin-top: 14px;
+            font-size: 24px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .stat span {
+            font-size: 11px;
+            font-weight: 600;
+            color: #10b981;
+            background: #ecfdf5;
+            padding: 2px 7px;
+            border-radius: 6px;
+        }
+
+        /* Specific Card Positions & Palettes */
+        #card-1 { top: 12%; left: 8%; background: var(--sky); transform: rotate(-3deg); }
+        #card-2 { top: 14%; right: 9%; background: var(--peach); transform: rotate(2deg); }
+        #card-3 { bottom: 12%; left: 10%; background: var(--mint); transform: rotate(4deg); }
+        #card-4 { bottom: 12%; right: 8%; background: var(--lilac); transform: rotate(-2deg); width: 330px; }
+        #card-5 { top: 46%; left: 4%; width: 200px; }
+        #card-6 { bottom: 44%; right: 4%; width: 210px; }
+
+        /* Growth curve and graphics inside cards */
+        .growth-curve {
+            width: 100%;
+            height: 38px;
+            margin-top: 12px;
+        }
+
+        .citation-tag {
+            display: inline-block;
+            padding: 1px 6px;
+            background: #111111;
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: 700;
+            border-radius: 100px;
+            margin: 0 2px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .citation-tag:hover {
+            transform: scale(1.1);
+            background: #3b82f6;
+        }
+
+        .dot {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ddd;
+            z-index: 1;
+        }
+
+        .annotation {
+            position: absolute;
+            font-family: 'Gaegu', cursive;
+            font-size: 20px;
+            color: #999;
+            pointer-events: none;
+            user-select: none;
+        }
+
+        /* Footer CTA Button */
+        .footer-cta {
+            position: fixed;
+            bottom: 34px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+        }
+
+        .btn-primary {
+            background: var(--fg);
+            color: white;
+            padding: 14px 28px;
+            border-radius: 100px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 14px 30px rgba(0,0,0,0.15);
+        }
+
+        .arrow-circle {
+            width: 24px;
+            height: 24px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s;
+        }
+
+        .btn-primary:hover .arrow-circle {
+            transform: rotate(90deg);
+        }
+
+        /* Tooltip for citations */
+        #tooltip {
+            position: fixed;
+            background: #111111;
+            color: #ffffff;
+            font-size: 11px;
+            line-height: 1.4;
+            padding: 10px 14px;
+            border-radius: 16px;
+            max-width: 260px;
+            pointer-events: none;
+            z-index: 2000;
+            opacity: 0;
+            transition: opacity 0.2s;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+    </style>
 </head>
-<body class="bg-radial-mesh text-slate-100 min-h-screen font-sans antialiased selection:bg-brand-500 selection:text-white">
+<body>
 
-  <!-- ================= TOP NAVIGATION BAR ================= -->
-  <header class="border-b border-slate-800/80 bg-slate-950/70 backdrop-blur-md sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-      
-      <!-- Logo & Branding -->
-      <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 via-indigo-600 to-cyan-400 p-[1px] shadow-glow-blue flex items-center justify-center">
-          <div class="w-full h-full bg-slate-950 rounded-[11px] flex items-center justify-center">
-            <svg class="w-5 h-5 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-          </div>
-        </div>
-        <div>
-          <div class="flex items-center gap-2">
-            <span class="text-base font-bold tracking-tight text-white">RAG-Gatekeeper</span>
-            <span class="px-2 py-0.5 text-[10px] font-semibold bg-brand-500/10 text-brand-400 border border-brand-500/20 rounded-full font-mono">v2.4 Pro</span>
-            <span class="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full font-mono flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Jev System-One
-            </span>
-          </div>
-          <p class="text-xs text-slate-400 hidden sm:block">端侧 RAG 检索动态短路 · 切片轻量重排 · 三阶防幻觉决策网关</p>
-        </div>
-      </div>
-
-      <!-- Quick Metrics Ribbon & Links -->
-      <div class="flex items-center gap-3">
-        <!-- Live Benchmark Badges -->
-        <div class="hidden lg:flex items-center gap-3 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-slate-800 text-xs font-mono">
-          <div class="flex items-center gap-1.5 text-slate-300">
-            <span class="text-slate-500">短路跳过率:</span>
-            <span class="text-emerald-400 font-bold">~38.5%</span>
-          </div>
-          <div class="h-3 w-[1px] bg-slate-700"></div>
-          <div class="flex items-center gap-1.5 text-slate-300">
-            <span class="text-slate-500">仲裁时延:</span>
-            <span class="text-cyan-400 font-bold">&lt; 8ms</span>
-          </div>
-          <div class="h-3 w-[1px] bg-slate-700"></div>
-          <div class="flex items-center gap-1.5 text-slate-300">
-            <span class="text-slate-500">阻断拦截率:</span>
-            <span class="text-rose-400 font-bold">99.2%</span>
-          </div>
-        </div>
-
-        <!-- Mode Toggle Pill -->
-        <div class="flex items-center bg-slate-900 p-0.5 rounded-lg border border-slate-800 text-xs">
-          <button id="modeOfflineBtn" onclick="switchExecutionMode('offline')" class="px-2.5 py-1 rounded-md font-medium text-white bg-brand-600 shadow-sm transition">离线仿真</button>
-          <button id="modeLiveBtn" onclick="switchExecutionMode('live')" class="px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition">直连本地网关</button>
-        </div>
-
-        <!-- GitHub Repo Link -->
-        <a href="https://github.com/jjy0230/rag-gatekeeper" target="_blank" class="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition" title="查看 GitHub 仓库">
-          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
-          </svg>
+    <!-- ================= TOP NAVIGATION ================= -->
+    <nav>
+        <a href="https://github.com/jjy0230/rag-gatekeeper" target="_blank" class="logo">
+            Gatekeeper.
+            <span class="badge">v2.4 Jev</span>
         </a>
-      </div>
-
-    </div>
-  </header>
-
-  <!-- ================= MAIN CONTAINER ================= -->
-  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-
-    <!-- ================= 1. PIPELINE WORKFLOW STEPPER ================= -->
-    <section class="glass-card rounded-2xl p-4 sm:p-5">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-          <span class="w-2 h-2 rounded-full bg-brand-400"></span>
-          Gatekeeper 全链路决策拓扑 (End-to-End Decision Topology)
-        </h2>
-        <span class="text-xs text-slate-500 font-mono" id="pipelineStatusText">就绪待命 (Ready)</span>
-      </div>
-
-      <!-- Node Graph Stepper -->
-      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 text-xs">
-        
-        <!-- Node 0: Semantic Cache -->
-        <div id="step-cache" class="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col justify-between transition-all duration-300">
-          <div class="flex items-center justify-between text-slate-400 font-medium">
-            <span>0. 语义缓存</span>
-            <span class="text-[10px] font-mono text-slate-500">L1/L2</span>
-          </div>
-          <div class="mt-2 text-slate-300 font-bold truncate" id="step-cache-val">待命中</div>
-          <div class="mt-1 text-[10px] text-slate-500 font-mono" id="step-cache-time">~1.2ms</div>
+        <div class="nav-links">
+            <a href="#card-1">S1 Noul</a>
+            <a href="#card-2">S2 Score</a>
+            <a href="#card-3">S3 Guardrail</a>
+            <a href="#card-4">Citations</a>
+            <a href="https://github.com/jjy0230/rag-gatekeeper" target="_blank">GitHub</a>
         </div>
-
-        <!-- Node 1: Stage 1 Arbitration -->
-        <div id="step-s1" class="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col justify-between transition-all duration-300">
-          <div class="flex items-center justify-between text-slate-400 font-medium">
-            <span>1. 需求仲裁</span>
-            <span class="text-[10px] font-mono px-1 rounded bg-brand-950 text-brand-300">Noul</span>
-          </div>
-          <div class="mt-2 text-slate-300 font-bold truncate" id="step-s1-val">短路判定</div>
-          <div class="mt-1 text-[10px] text-slate-500 font-mono" id="step-s1-time">~7.8ms</div>
+        <div class="mode-toggle-pill">
+            <button id="btnOffline" class="mode-btn active" onclick="setMode('offline')">Simulation</button>
+            <button id="btnLive" class="mode-btn" onclick="setMode('live')">Live API</button>
         </div>
+    </nav>
 
-        <!-- Node 2: Domain Router -->
-        <div id="step-domain" class="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col justify-between transition-all duration-300">
-          <div class="flex items-center justify-between text-slate-400 font-medium">
-            <span>1.5 业务域路由</span>
-            <span class="text-[10px] font-mono px-1 rounded bg-indigo-950 text-indigo-300">Choice</span>
-          </div>
-          <div class="mt-2 text-slate-300 font-bold truncate" id="step-domain-val">财务分区</div>
-          <div class="mt-1 text-[10px] text-slate-500 font-mono" id="step-domain-time">~6.5ms</div>
-        </div>
+    <!-- ================= KINETIC CANVAS ================= -->
+    <div class="canvas" id="canvas">
 
-        <!-- Node 3: Stage 2 Rerank -->
-        <div id="step-s2" class="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col justify-between transition-all duration-300">
-          <div class="flex items-center justify-between text-slate-400 font-medium">
-            <span>2. 切片重排</span>
-            <span class="text-[10px] font-mono px-1 rounded bg-amber-950 text-amber-300">Score</span>
-          </div>
-          <div class="mt-2 text-slate-300 font-bold truncate" id="step-s2-val">相关性过滤</div>
-          <div class="mt-1 text-[10px] text-slate-500 font-mono" id="step-s2-time">~18.4ms</div>
-        </div>
-
-        <!-- Node 4: Context Compressor -->
-        <div id="step-compress" class="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col justify-between transition-all duration-300">
-          <div class="flex items-center justify-between text-slate-400 font-medium">
-            <span>2.5 论据萃取</span>
-            <span class="text-[10px] font-mono text-slate-500">-65% Tok</span>
-          </div>
-          <div class="mt-2 text-slate-300 font-bold truncate" id="step-compress-val">单句级压缩</div>
-          <div class="mt-1 text-[10px] text-slate-500 font-mono" id="step-compress-time">~4.1ms</div>
-        </div>
-
-        <!-- Node 5: Stage 3 Guardrail -->
-        <div id="step-s3" class="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col justify-between transition-all duration-300">
-          <div class="flex items-center justify-between text-slate-400 font-medium">
-            <span>3. 防幻觉门禁</span>
-            <span class="text-[10px] font-mono px-1 rounded bg-rose-950 text-rose-300">Noul</span>
-          </div>
-          <div class="mt-2 text-slate-300 font-bold truncate" id="step-s3-val">事实一致性</div>
-          <div class="mt-1 text-[10px] text-slate-500 font-mono" id="step-s3-time">~14.2ms</div>
-        </div>
-
-        <!-- Node 6: Citation Radar -->
-        <div id="step-citation" class="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col justify-between transition-all duration-300">
-          <div class="flex items-center justify-between text-slate-400 font-medium">
-            <span>3.5 溯源注入</span>
-            <span class="text-[10px] font-mono text-slate-500">Radar</span>
-          </div>
-          <div class="mt-2 text-slate-300 font-bold truncate" id="step-citation-val">角标与免责</div>
-          <div class="mt-1 text-[10px] text-slate-500 font-mono" id="step-citation-time">~1.5ms</div>
-        </div>
-
-      </div>
-    </section>
-
-    <!-- ================= 2. SCENARIO SHOWCASE SELECTOR ================= -->
-    <section>
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400">
-          典型企业级测试场景 (One-Click Presets)
-        </h2>
-        <span class="text-xs text-slate-500">点击卡片直接载入并执行全链路决策流</span>
-      </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-        
-        <!-- Scenario 1: Short Circuit -->
-        <div onclick="loadScenario('sort_short_circuit')" class="glass-card glass-card-hover rounded-xl p-4 cursor-pointer border-l-4 border-l-emerald-500">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-              常识算法 · 动态短路
-            </span>
-            <span class="px-1.5 py-0.5 text-[10px] rounded bg-emerald-950/80 text-emerald-300 font-mono">Bypass DB</span>
-          </div>
-          <p class="text-xs text-slate-300 font-medium mb-1">“快速排序的时间复杂度是多少？”</p>
-          <p class="text-[11px] text-slate-500 line-clamp-2">通用算法常识命中短路判定，完全跳过外部知识库检索，压降 100% 检索延迟。</p>
-        </div>
-
-        <!-- Scenario 2: Grounded Citations -->
-        <div onclick="loadScenario('finance_citation')" class="glass-card glass-card-hover rounded-xl p-4 cursor-pointer border-l-4 border-l-brand-500">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-bold text-brand-400 flex items-center gap-1.5">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" /></svg>
-              财务规范 · 高置信溯源
-            </span>
-            <span class="px-1.5 py-0.5 text-[10px] rounded bg-brand-950/80 text-brand-300 font-mono">[1] Citation</span>
-          </div>
-          <p class="text-xs text-slate-300 font-medium mb-1">“出差交通补贴每日上限多少？”</p>
-          <p class="text-[11px] text-slate-500 line-clamp-2">路由财务分区，重排高分切片，生成核准答案并自动注入交互式引用角标与来源清单。</p>
-        </div>
-
-        <!-- Scenario 3: Hallucination Block -->
-        <div onclick="loadScenario('catfood_hallucination')" class="glass-card glass-card-hover rounded-xl p-4 cursor-pointer border-l-4 border-l-rose-500">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-bold text-rose-400 flex items-center gap-1.5">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-              虚构事实 · 幻觉阻断
-            </span>
-            <span class="px-1.5 py-0.5 text-[10px] rounded bg-rose-950/80 text-rose-300 font-mono">Blocked</span>
-          </div>
-          <p class="text-xs text-slate-300 font-medium mb-1">“公司每月发两万猫粮补贴吗？”</p>
-          <p class="text-[11px] text-slate-500 line-clamp-2">模型胡编乱造，事实一致性门禁侦测到严重不支持事实，触发阻断并安全降级。</p>
-        </div>
-
-        <!-- Scenario 4: Partial Grounded -->
-        <div onclick="loadScenario('partially_grounded')" class="glass-card glass-card-hover rounded-xl p-4 cursor-pointer border-l-4 border-l-amber-500">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-bold text-amber-400 flex items-center gap-1.5">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              跨月报销 · 事实边界指引
-            </span>
-            <span class="px-1.5 py-0.5 text-[10px] rounded bg-amber-950/80 text-amber-300 font-mono">Disclaimer</span>
-          </div>
-          <p class="text-xs text-slate-300 font-medium mb-1">“跨月交通补贴可以累计报销吗？”</p>
-          <p class="text-[11px] text-slate-500 line-clamp-2">核心条款存在佐证但缺乏跨月细则支持，自动降级为边界放行并加注合规提示。</p>
-        </div>
-
-      </div>
-    </section>
-
-    <!-- ================= 3. TWO-COLUMN WORKSPACE ================= -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-      <!-- ================= LEFT COLUMN: INPUT & INSPECTOR (5 COLS) ================= -->
-      <div class="lg:col-span-5 space-y-5">
-        
-        <!-- Query Studio Box -->
-        <div class="glass-card rounded-2xl p-5 space-y-4">
-          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <svg class="w-4 h-4 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
-              用户提问与生成设置 (Query Studio)
-            </h3>
-            <span class="text-[11px] text-slate-500 font-mono" id="tokenEstimate">~32 Tokens</span>
-          </div>
-
-          <!-- User Query Input -->
-          <div>
-            <label class="block text-xs font-semibold text-slate-300 mb-1.5">当前提问 (User Query)</label>
-            <textarea id="queryInput" rows="2" class="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 font-sans transition" placeholder="输入用户提问..."></textarea>
-          </div>
-
-          <!-- Multi-turn Context -->
-          <div>
-            <label class="block text-xs font-semibold text-slate-400 mb-1.5 flex items-center justify-between">
-              <span>上一轮对话历史 (用于多轮指代消解重写)</span>
-              <span class="text-[10px] text-slate-500">可选</span>
-            </label>
-            <input id="lastTurnInput" type="text" class="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-brand-500 font-sans" placeholder="例如：我们上周讨论了员工交通报销规范...">
-          </div>
-
-          <!-- Mock/Simulated LLM Generated Output -->
-          <div>
-            <label class="block text-xs font-semibold text-slate-400 mb-1.5 flex items-center justify-between">
-              <span>下游大模型生成草稿 (LLM Draft Answer)</span>
-              <span class="text-[10px] text-brand-400">待事实门禁核验</span>
-            </label>
-            <textarea id="llmDraftInput" rows="3" class="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono transition" placeholder="模型草稿回答..."></textarea>
-          </div>
-
-          <!-- Advanced Toggle Switches -->
-          <div class="pt-2 border-t border-slate-800/80 space-y-2.5 text-xs">
-            <div class="flex items-center justify-between">
-              <span class="text-slate-300 font-medium">启用 L1/L2 双层语义缓存</span>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input id="toggleCache" type="checkbox" checked class="sr-only peer">
-                <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600"></div>
-              </label>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-slate-300 font-medium">启用 Jev Choice 业务域分区路由</span>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input id="toggleDomain" type="checkbox" checked class="sr-only peer">
-                <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600"></div>
-              </label>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-slate-300 font-medium">流式分句投机早停熔断 (Early-Kill)</span>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input id="toggleEarlyKill" type="checkbox" checked class="sr-only peer">
-                <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600"></div>
-              </label>
-            </div>
-          </div>
-
-          <!-- Execute Button -->
-          <div class="pt-2">
-            <button onclick="executePipeline()" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-brand-600 via-indigo-600 to-cyan-500 hover:from-brand-500 hover:via-indigo-500 hover:to-cyan-400 text-white font-semibold text-sm shadow-glow-blue flex items-center justify-center gap-2 transition duration-200 cursor-pointer">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              执行 Gatekeeper 全链路仲裁
-            </button>
-          </div>
-
-        </div>
-
-        <!-- Candidate Chunks Inspector Box -->
-        <div class="glass-card rounded-2xl p-5 space-y-3">
-          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-              检索候选切片池 (Candidate Chunks: <span id="chunkCountBadge" class="text-amber-400 font-mono">2</span>)
-            </h3>
-            <span class="text-[11px] text-slate-500 font-mono">Stage 2 过滤对象</span>
-          </div>
-
-          <div id="chunksListContainer" class="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
-            <!-- Dynamically populated chunks cards -->
-          </div>
-        </div>
-
-      </div>
-
-      <!-- ================= RIGHT COLUMN: OBSERVABILITY & RADAR (7 COLS) ================= -->
-      <div class="lg:col-span-7 space-y-5">
-        
-        <!-- Confidence Radar & Verdict Banner -->
-        <div id="verdictBanner" class="glass-card rounded-2xl p-5 border-l-4 border-l-brand-500 transition-all duration-300">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div class="flex items-start gap-3">
-              <div id="verdictIcon" class="w-10 h-10 rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center shrink-0">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              </div>
-              <div>
-                <div class="flex items-center gap-2">
-                  <h4 id="verdictTitle" class="text-base font-bold text-white tracking-tight">权威核验放行 (Authoritative Grounded)</h4>
-                  <span id="verdictTierBadge" class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono">TIER-1</span>
+        <!-- Central Hero Section -->
+        <div class="hero">
+            <h1>what's your<br>rag query?</h1>
+            
+            <div class="search-container">
+                <div class="search-trigger">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <path d="m21 21-4.3-4.3"></path>
+                    </svg>
+                    <input id="queryInput" type="text" value="出差交通补贴每日最高上限是多少？" placeholder="Ask anything (e.g. 快速排序时间复杂度)..." onkeydown="if(event.key==='Enter') executePipeline()">
+                    <button class="action-run" onclick="executePipeline()">
+                        Run
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                            <path d="M5 12h14m-7-7 7 7-7 7"></path>
+                        </svg>
+                    </button>
                 </div>
-                <p id="verdictDesc" class="text-xs text-slate-300 mt-1">经 Jev Noul 与 Score 双重核验，大模型生成内容获得相关切片强有力佐证，已注入引用角标。</p>
-              </div>
-            </div>
-            <!-- Overhead Latency Badge -->
-            <div class="bg-slate-900/90 border border-slate-800 rounded-xl px-3.5 py-2 shrink-0 text-right">
-              <span class="block text-[10px] text-slate-500 uppercase tracking-wider font-mono">网关总开销 (Overhead)</span>
-              <span id="totalLatencyText" class="text-lg font-bold font-mono text-cyan-400">28.4 <span class="text-xs text-slate-400">ms</span></span>
-            </div>
-          </div>
 
-          <!-- Radar Meter Bar -->
-          <div class="mt-4 pt-4 border-t border-slate-800/80">
-            <div class="flex items-center justify-between text-xs mb-1.5">
-              <span class="text-slate-400 flex items-center gap-1.5">
-                <span>三阶事实置信度雷达</span>
-                <span class="text-[10px] font-mono text-slate-500">(Confidence Spectrum)</span>
-              </span>
-              <span id="radarScoreText" class="font-mono text-xs font-bold text-emerald-400">置信度: 0.95 · 极低风险</span>
+                <!-- 1-Click Presets -->
+                <div class="preset-pills">
+                    <button class="preset-btn active" onclick="loadPreset('finance_citation', this)">
+                        🎯 差旅标准 (高置信溯源)
+                    </button>
+                    <button class="preset-btn" onclick="loadPreset('sort_short_circuit', this)">
+                        ⚡ 快速排序 (动态短路)
+                    </button>
+                    <button class="preset-btn" onclick="loadPreset('catfood_hallucination', this)">
+                        🛡️ 两万猫粮 (幻觉阻断)
+                    </button>
+                    <button class="preset-btn" onclick="loadPreset('partially_grounded', this)">
+                        ⚠️ 跨月细则 (边界指引)
+                    </button>
+                </div>
             </div>
-            <div class="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden p-[1px] border border-slate-800 flex">
-              <div id="radarBarGreen" class="h-full bg-emerald-500 rounded-l-full transition-all duration-500" style="width: 75%;"></div>
-              <div id="radarBarYellow" class="h-full bg-amber-500 transition-all duration-500" style="width: 15%;"></div>
-              <div id="radarBarRed" class="h-full bg-rose-500 rounded-r-full transition-all duration-500" style="width: 10%;"></div>
-            </div>
-            <div class="flex justify-between text-[10px] text-slate-500 font-mono mt-1">
-              <span>0.00 (高危幻觉)</span>
-              <span>0.30 (边界免责)</span>
-              <span>0.70 (权威佐证)</span>
-              <span>1.00 (完全一致)</span>
-            </div>
-          </div>
         </div>
 
-        <!-- Latency Waterfall Breakdown -->
-        <div class="glass-card rounded-2xl p-5 space-y-3">
-          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <svg class="w-4 h-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              毫秒级决策耗时瀑布流 (Latency Waterfall Breakdown)
-            </h3>
-            <span class="text-[11px] text-emerald-400 font-mono">对比全量 RAG 节省 ~220ms</span>
-          </div>
-
-          <div class="space-y-2.5 text-xs font-mono">
-            <!-- Item 1: Cache Check -->
-            <div>
-              <div class="flex justify-between text-slate-300 mb-1">
-                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-400"></span>0. 语义缓存检索 (L1/L2 Exact + Cosine)</span>
-                <span id="wf-cache-time">1.2 ms</span>
-              </div>
-              <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
-                <div id="wf-cache-bar" class="bg-emerald-500 h-1.5 rounded-full" style="width: 4%;"></div>
-              </div>
+        <!-- ================= CARD 1: STAGE 1 DYNAMIC BYPASS (SKY BLUE) ================= -->
+        <div class="card" id="card-1" style="z-index: 5;">
+            <div class="card-label" style="background: #bae6fd;">Stage 1 · Noul</div>
+            <h3>Dynamic Bypass</h3>
+            <p id="c1-desc">Direct LLM synthesis for common knowledge. Skip vector search.</p>
+            <div class="stat" id="c1-stat">7.8ms <span id="c1-badge" style="color:#0ea5e9; background:#e0f2fe;">Evaluated</span></div>
+            <div class="growth-curve">
+                <svg width="100%" height="100%" viewBox="0 0 100 40" preserveAspectRatio="none">
+                    <path id="c1-curve" d="M0 40 Q 25 35, 50 20 T 100 5" fill="none" stroke="#0ea5e9" stroke-width="3" stroke-linecap="round"></path>
+                </svg>
             </div>
-
-            <!-- Item 2: Stage 1 Arbitration -->
-            <div>
-              <div class="flex justify-between text-slate-300 mb-1">
-                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-brand-400"></span>1. Jev Noul 需求短路判定</span>
-                <span id="wf-s1-time">6.8 ms</span>
-              </div>
-              <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
-                <div id="wf-s1-bar" class="bg-brand-500 h-1.5 rounded-full" style="width: 24%;"></div>
-              </div>
-            </div>
-
-            <!-- Item 3: Stage 2 Rerank -->
-            <div>
-              <div class="flex justify-between text-slate-300 mb-1">
-                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-400"></span>2. Jev Score 并发切片评分与过滤</span>
-                <span id="wf-s2-time">18.2 ms</span>
-              </div>
-              <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
-                <div id="wf-s2-bar" class="bg-amber-500 h-1.5 rounded-full" style="width: 64%;"></div>
-              </div>
-            </div>
-
-            <!-- Item 4: Stage 3 Guardrail -->
-            <div>
-              <div class="flex justify-between text-slate-300 mb-1">
-                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-rose-400"></span>3. Jev Noul 事实一致性与幻觉核验</span>
-                <span id="wf-s3-time">12.4 ms</span>
-              </div>
-              <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
-                <div id="wf-s3-bar" class="bg-rose-500 h-1.5 rounded-full" style="width: 43%;"></div>
-              </div>
-            </div>
-          </div>
         </div>
 
-        <!-- Final Client-Facing Output Terminal -->
-        <div class="glass-card rounded-2xl p-5 space-y-3">
-          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <svg class="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-              终端客户交付输出 (Client-Facing Grounded Output)
-            </h3>
-            <span class="text-[11px] text-slate-500 font-mono">支持点击引用角标高亮溯源</span>
-          </div>
-
-          <!-- Final Answer Container -->
-          <div id="finalOutputBox" class="bg-slate-950/90 border border-slate-800/90 rounded-xl p-4 text-sm text-slate-200 leading-relaxed font-sans min-h-[140px] whitespace-pre-wrap selection:bg-brand-600">
-            <!-- Dynamically populated text with interactive .citation-pill badges -->
-          </div>
+        <!-- ================= CARD 2: STAGE 2 RERANK (PEACH) ================= -->
+        <div class="card" id="card-2" style="z-index: 4;">
+            <div class="card-label" style="background: #fed7aa;">Stage 2 · Score</div>
+            <h3>Precision Rerank</h3>
+            <div class="stat" id="c2-stat">4.8★ <span id="c2-badge" style="color:#ea580c; background:#ffedd5;">Top-1 Chunk</span></div>
+            <p id="c2-desc" style="margin-top: 6px;">Kept 2 highly relevant chunks. Filtered low-score noise (&lt;4.0).</p>
         </div>
 
-        <!-- Telemetry Raw Trace Explorer -->
-        <div class="glass-card rounded-2xl p-4 space-y-2">
-          <details class="group">
-            <summary class="flex items-center justify-between cursor-pointer text-xs font-bold uppercase tracking-wider text-slate-400 select-none">
-              <span class="flex items-center gap-2">
-                <svg class="w-4 h-4 text-slate-500 group-open:rotate-90 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                决策遥测原始审计数据 (Raw Gatekeeper Telemetry)
-              </span>
-              <span class="text-[10px] text-slate-500 font-mono">JSON</span>
-            </summary>
-            <div class="mt-3">
-              <pre id="rawTelemetryJson" class="bg-slate-950 p-3 rounded-xl border border-slate-800 text-[11px] text-emerald-400 font-mono overflow-x-auto max-h-[220px]">{}</pre>
+        <!-- ================= CARD 3: STAGE 3 GUARDRAIL RADAR (MINT) ================= -->
+        <div class="card" id="card-3" style="z-index: 3;">
+            <div class="card-label" style="background: #bbf7d0;">Stage 3 · Radar</div>
+            <h3 id="c3-title">Confidence Radar</h3>
+            <div class="stat" id="c3-stat">0.95 <span id="c3-badge">Verified</span></div>
+            <p id="c3-desc" style="margin-top: 6px;">Zero unsupported facts detected. 100% grounded in source text.</p>
+        </div>
+
+        <!-- ================= CARD 4: GROUNDED OUTPUT & CITATIONS (LILAC) ================= -->
+        <div class="card" id="card-4" style="z-index: 2;">
+            <div class="card-label" style="background: #e9d5ff;">Delivery · Citations</div>
+            <h3>Grounded Answer</h3>
+            <div id="finalOutputContent" style="font-size: 13px; color: #333; line-height: 1.6; margin-top: 6px; max-height: 150px; overflow-y: auto;">
+                员工每日出差交通补贴上限为 100 元 <span class="citation-tag" onmouseenter="showTooltip(event, '2026年财务差旅报销规范.pdf: 员工因公出差，每日交通补贴标准上限为 100 元，住宿凭发票实报实销上限 450 元。')" onmouseleave="hideTooltip()">[1]</span>，住宿凭合规发票实报实销上限 450 元 <span class="citation-tag" onmouseenter="showTooltip(event, '2026年财务差旅报销规范.pdf: 住宿凭发票实报实销上限 450 元，需在 7 个工作日内提交财务系统审批。')" onmouseleave="hideTooltip()">[1]</span>。
             </div>
-          </details>
+            <div style="margin-top: 12px; font-size: 11px; color: #888; font-weight: 500; display: flex; justify-content: space-between;">
+                <span id="outputTier">Tier 1 · Authoritative</span>
+                <span id="outputLatency">Overhead: 28.4ms</span>
+            </div>
         </div>
 
-      </div>
+        <!-- ================= CARD 5: LATENCY BREAKDOWN (WHITE) ================= -->
+        <div class="card" id="card-5" style="z-index: 1;">
+            <div class="card-label" style="background: #e2e8f0;">Telemetry</div>
+            <h3 style="font-size: 16px;">Latency</h3>
+            <div style="margin-top: 8px; font-size: 12px; color: #555; space-y: 4px; font-family: 'JetBrains Mono', monospace;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                    <span>S1 Arbitrate:</span> <strong id="t-s1">7.8ms</strong>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                    <span>S2 Rerank:</span> <strong id="t-s2">18.2ms</strong>
+                </div>
+                <div style="display:flex; justify-content:space-between;">
+                    <span>S3 Guard:</span> <strong id="t-s3">12.4ms</strong>
+                </div>
+            </div>
+        </div>
 
+        <!-- ================= CARD 6: DOMAIN ROUTING (WHITE) ================= -->
+        <div class="card" id="card-6" style="z-index: 1;">
+            <div class="card-label" style="background: #e2e8f0;">Jev Choice</div>
+            <h3 style="font-size: 16px;">Domain Router</h3>
+            <div class="stat" style="font-size: 18px; margin-top: 8px;" id="c6-domain">FINANCE</div>
+            <p style="font-size: 12px; margin-top: 4px; color: #777;">Auto-routed to finance expense partition.</p>
+        </div>
+
+        <!-- Handwritten Gaegu Annotations -->
+        <div class="annotation" style="top: 25%; left: 23%;">← microsecond bypass</div>
+        <div class="annotation" style="top: 27%; right: 22%;">score &amp; rerank →</div>
+        <div class="annotation" style="bottom: 27%; left: 24%;">← hallucination-free</div>
+        <div class="annotation" style="bottom: 25%; right: 25%; transform: rotate(-4deg);">grounded citations →</div>
+        <div class="annotation" style="top: 66%; left: 14%; transform: rotate(4deg);">drag any card anywhere!</div>
+
+        <!-- Floating Sine Wave Dots -->
+        <div class="dot" style="top: 10%; left: 35%;"></div>
+        <div class="dot" style="bottom: 18%; left: 55%;"></div>
+        <div class="dot" style="top: 75%; left: 6%;"></div>
+        <div class="dot" style="top: 48%; right: 14%;"></div>
+        <div class="dot" style="top: 20%; right: 35%;"></div>
     </div>
 
-  </main>
-
-  <!-- ================= POPUP / FLOATING TOOLTIP FOR CITATION ================= -->
-  <div id="citationPopover" class="fixed z-50 hidden max-w-sm bg-slate-900 border border-slate-700 shadow-2xl rounded-xl p-3.5 text-xs text-slate-200 backdrop-blur-xl pointer-events-none transition-all duration-150">
-    <div class="flex items-center justify-between text-[11px] font-bold text-brand-400 border-b border-slate-800 pb-1.5 mb-2">
-      <span id="popoverTitle">佐证切片 [1]</span>
-      <span id="popoverScore" class="font-mono text-emerald-400">Score: 4.8★</span>
+    <!-- ================= FIXED FOOTER CTA ================= -->
+    <div class="footer-cta">
+        <button class="btn-primary" onclick="executePipeline()">
+            Run Full Pipeline
+            <div class="arrow-circle">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                    <path d="M5 12h14m-7-7 7 7-7 7"></path>
+                </svg>
+            </div>
+        </button>
     </div>
-    <p id="popoverContent" class="text-slate-300 leading-normal line-clamp-4 font-mono text-[11px]"></p>
-  </div>
 
-  <!-- ================= SCRIPT ENGINE ================= -->
-  <script>
-    let currentMode = 'offline'; // 'offline' or 'live'
+    <!-- Floating Citation Tooltip -->
+    <div id="tooltip"></div>
 
-    // Candidate chunks in memory
-    let candidateChunks = [
-      {
-        id: "chunk_fin_01",
-        domain: "FINANCE_EXPENSE",
-        content: "员工出差每日交通补贴上限为 100 元，住宿凭发票实报实销上限 450 元。发票必须在费用发生后 7 个工作日内提交财务系统审批。",
-        score: 4.8,
-        metadata: { source: "2026年财务差旅报销规范.pdf", section: "第3条 补贴细则" }
-      },
-      {
-        id: "chunk_fin_02",
-        domain: "FINANCE_EXPENSE",
-        content: "国际差旅住宿上限根据城市分类浮动，跨国航班经济舱需提前 14 天预定并获总监批准。",
-        score: 3.2,
-        metadata: { source: "2026年财务差旅报销规范.pdf", section: "第5条 跨国出差" }
-      }
-    ];
+    <!-- ================= SCRIPT ENGINE ================= -->
+    <script>
+        const cards = document.querySelectorAll('.card');
+        const dots = document.querySelectorAll('.dot');
+        const canvas = document.getElementById('canvas');
+        const tooltip = document.getElementById('tooltip');
 
-    // Presets
-    const SCENARIOS = {
-      sort_short_circuit: {
-        query: "快速排序的平均时间复杂度和最坏时间复杂度分别是多少？",
-        lastTurn: "",
-        draft: "快速排序平均时间复杂度为 O(N log N)，在基准选择极度不平衡的最坏情况下为 O(N^2)。",
-        chunks: []
-      },
-      finance_citation: {
-        query: "请问员工日常出差的交通补贴每日最高上限是多少？",
-        lastTurn: "请帮我查一下差旅标准。",
-        draft: "根据公司差旅报销规定，员工出差每日交通补贴上限为 100 元，住宿凭合规发票实报实销上限 450 元，发票需在 7 个工作日内提交审批。",
-        chunks: [
-          {
-            id: "chunk_fin_01",
-            domain: "FINANCE_EXPENSE",
-            content: "员工出差每日交通补贴上限为 100 元，住宿凭发票实报实销上限 450 元。发票必须在费用发生后 7 个工作日内提交财务系统审批。",
-            score: 4.8,
-            metadata: { source: "2026年财务差旅报销规范.pdf", section: "第3条 补贴细则" }
-          },
-          {
-            id: "chunk_fin_02",
-            domain: "FINANCE_EXPENSE",
-            content: "国际差旅住宿上限根据城市分类浮动，跨国航班经济舱需提前 14 天预定并获总监批准。",
-            score: 3.2,
-            metadata: { source: "2026年财务差旅报销规范.pdf", section: "第5条 跨国出差" }
-          }
-        ]
-      },
-      catfood_hallucination: {
-        query: "我们公司每个月发两万块钱的猫粮宠物补贴，具体怎么申领？",
-        lastTurn: "",
-        draft: "员工每月可在行政门户直接申领 20,000 元猫粮补贴，凭宠物医院购买发票由人事部门全额发放至工资卡。",
-        chunks: [
-          {
-            id: "chunk_hr_01",
-            domain: "HR_BENEFITS",
-            content: "公司为全职员工提供免费下午茶、年度体检及节假日礼品卡福利。严禁虚报与转卖任何福利凭据。",
-            score: 2.1,
-            metadata: { source: "员工手册-福利篇.docx", section: "常规福利" }
-          }
-        ]
-      },
-      partially_grounded: {
-        query: "如果我这个月交通补贴没有用完，可以累计跨月报销吗？",
-        lastTurn: "出差交通补贴每日上限是 100 元。",
-        draft: "根据差旅规定每日交通补贴为 100 元，跨月累计报销一般需要向部门主管提请特殊审批手续。",
-        chunks: [
-          {
-            id: "chunk_fin_01",
-            domain: "FINANCE_EXPENSE",
-            content: "员工出差每日交通补贴上限为 100 元，住宿凭发票实报实销上限 450 元。发票必须在费用发生后 7 个工作日内提交财务系统审批。",
-            score: 4.5,
-            metadata: { source: "2026年财务差旅报销规范.pdf", section: "第3条 补贴细则" }
-          }
-        ]
-      }
-    };
+        let mode = 'offline';
 
-    function switchExecutionMode(mode) {
-      currentMode = mode;
-      const offBtn = document.getElementById('modeOfflineBtn');
-      const liveBtn = document.getElementById('modeLiveBtn');
-      if (mode === 'offline') {
-        offBtn.className = "px-2.5 py-1 rounded-md font-medium text-white bg-brand-600 shadow-sm transition";
-        liveBtn.className = "px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition";
-      } else {
-        liveBtn.className = "px-2.5 py-1 rounded-md font-medium text-white bg-indigo-600 shadow-sm transition";
-        offBtn.className = "px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-slate-200 transition";
-      }
-    }
-
-    function loadScenario(key) {
-      const s = SCENARIOS[key];
-      if (!s) return;
-      document.getElementById('queryInput').value = s.query;
-      document.getElementById('lastTurnInput').value = s.lastTurn;
-      document.getElementById('llmDraftInput').value = s.draft;
-      candidateChunks = JSON.parse(JSON.stringify(s.chunks));
-      renderChunksList();
-      executePipeline();
-    }
-
-    function renderChunksList() {
-      const container = document.getElementById('chunksListContainer');
-      document.getElementById('chunkCountBadge').innerText = candidateChunks.length;
-      
-      if (candidateChunks.length === 0) {
-        container.innerHTML = `
-          <div class="p-3 rounded-xl border border-dashed border-slate-800 text-center text-xs text-slate-500">
-            无需外部候选切片（当前场景已短路）
-          </div>
-        `;
-        return;
-      }
-
-      container.innerHTML = candidateChunks.map((c, idx) => `
-        <div id="chunk-card-${idx}" class="p-3 bg-slate-900/80 border border-slate-800 rounded-xl space-y-1.5 transition-all duration-200 hover:border-slate-700">
-          <div class="flex items-center justify-between text-xs">
-            <span class="font-mono text-[11px] text-brand-400 font-semibold">[${idx+1}] ${c.id}</span>
-            <span class="px-1.5 py-0.5 text-[10px] rounded bg-indigo-950 text-indigo-300 font-mono">${c.domain}</span>
-          </div>
-          <p class="text-xs text-slate-300 line-clamp-2 leading-relaxed">${c.content}</p>
-          <div class="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-800/60 font-mono">
-            <span>${c.metadata.source}</span>
-            <span class="text-amber-400 font-bold">${c.score}★</span>
-          </div>
-        </div>
-      `).join('');
-    }
-
-    async function executePipeline() {
-      const query = document.getElementById('queryInput').value.trim();
-      const lastTurn = document.getElementById('lastTurnInput').value.trim();
-      const draft = document.getElementById('llmDraftInput').value.trim();
-      const enableCache = document.getElementById('toggleCache').checked;
-      const enableDomain = document.getElementById('toggleDomain').checked;
-
-      // Update Pipeline Stepper into Running status
-      document.getElementById('pipelineStatusText').innerHTML = `
-        <span class="flex items-center gap-1.5 text-brand-400 font-mono">
-          <span class="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse"></span>
-          仲裁计算中 (Evaluating...)
-        </span>
-      `;
-
-      if (currentMode === 'live') {
-        try {
-          const resp = await fetch('http://localhost:8080/v1/gatekeeper/audit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              query: query,
-              last_turn_query: lastTurn || null,
-              retrieved_chunks: candidateChunks,
-              generated_answer: draft,
-              enable_semantic_cache: enableCache
-            })
-          });
-          if (resp.ok) {
-            const data = await resp.json();
-            renderExecutionResult(data);
-            return;
-          }
-        } catch (e) {
-          console.warn("Live API not accessible, falling back to instant client simulation:", e);
-        }
-      }
-
-      // Offline High-Fidelity Simulation
-      simulateOfflineDecision(query, lastTurn, draft, enableCache, enableDomain);
-    }
-
-    function simulateOfflineDecision(query, lastTurn, draft, enableCache, enableDomain) {
-      setTimeout(() => {
-        const isShortCircuit = query.includes("排序") || query.includes("复杂度") || query.includes("你好") || query.includes("算法");
-        const isCatfood = query.includes("猫粮") || query.includes("两万");
-        const isPartial = query.includes("累计") || query.includes("跨月");
-
-        let tier = "AUTHORITATIVE_VERIFIED";
-        let finalOutput = draft;
-        let citations = [];
-
-        if (isShortCircuit) {
-          tier = "AUTHORITATIVE_VERIFIED";
-          finalOutput = "【⚡ 动态短路直连生成】\n快速排序在平均状况下的时间复杂度是 O(N log N)；在选取的基准极度不平衡（如已有序列完全倒序且每次取首元素）的最坏情况下，时间复杂度会退化到 O(N^2)。\n\n> 💡 *该问题属于通用算法常识，Gatekeeper 阶段一判定无需外部检索，压降 100% 检索延迟与显存开销。*";
-        } else if (isCatfood) {
-          tier = "HALLUCINATED_BLOCKED";
-          finalOutput = "🛡️ **【Gatekeeper 防幻觉拦截】**\n\n经 Stage 3 事实一致性门禁核验，大模型草稿中包含的主张（“每月发放两万元猫粮补贴”）在公司企业知识库检索切片中**不存在任何真实有效的事实佐证**（幻觉风险概率高达 88.4%）。\n\n为避免误导员工与合规风险，已对回答实施安全阻断与降级，请以公司《员工手册-常规福利篇》正式规章为准。";
-        } else if (isPartial) {
-          tier = "PARTIALLY_GROUNDED";
-          finalOutput = draft + "\n\n> ⚠️ **【免责与事实边界指引】**\n> 经 Gatekeeper 核验：公司差旅交通标准每日 100 元具备权威佐证 [1]；但“跨月累计报销”缺乏细则切片支撑，实际报销请以财务系统最终审批为准。";
-          if (candidateChunks.length > 0) {
-            citations.push({
-              index: 1,
-              chunk_id: candidateChunks[0].id,
-              snippet: candidateChunks[0].content,
-              relevance_score: 4.5,
-              metadata: candidateChunks[0].metadata
-            });
-          }
-        } else {
-          tier = "AUTHORITATIVE_VERIFIED";
-          finalOutput = `根据《2026年财务差旅报销规范》，员工日常出差的交通补贴每日最高上限为 100 元 [1]，住宿费用凭合规发票实报实销上限为 450 元 [1]。所有发票必须在发生后 7 个工作日内提交审批 [1]。\n\n---\n**📚 参考知识库来源：**\n- [1] **2026年财务差旅报销规范.pdf**: 核心条款：员工出差每日交通补贴上限为 100 元，住宿凭发票实报实销上限 450 元...`;
-          if (candidateChunks.length > 0) {
-            citations.push({
-              index: 1,
-              chunk_id: candidateChunks[0].id,
-              snippet: candidateChunks[0].content,
-              relevance_score: 4.8,
-              metadata: candidateChunks[0].metadata
-            });
-          }
+        function setMode(newMode) {
+            mode = newMode;
+            document.getElementById('btnOffline').className = `mode-btn ${newMode === 'offline' ? 'active' : ''}`;
+            document.getElementById('btnLive').className = `mode-btn ${newMode === 'live' ? 'active' : ''}`;
         }
 
-        const simData = {
-          query: query,
-          short_circuited: isShortCircuit,
-          cache_hit: enableCache && query.includes("上限") && Math.random() > 0.5,
-          total_overhead_latency_ms: isShortCircuit ? 7.8 : 28.4,
-          arbitration: {
-            needs_external_knowledge: !isShortCircuit,
-            confidence: 0.94,
-            latency_ms: 7.8
-          },
-          routed_domain: isShortCircuit ? null : "FINANCE_EXPENSE",
-          rerank: isShortCircuit ? null : {
-            total_evaluated: candidateChunks.length,
-            kept_count: candidateChunks.filter(c => c.score >= 4.0).length,
-            filtered_chunks: candidateChunks.map(c => ({ chunk: c, score: c.score })),
-            total_latency_ms: 18.2
-          },
-          guardrail: {
-            blocked: tier === "HALLUCINATED_BLOCKED",
-            hallucination_prob: tier === "HALLUCINATED_BLOCKED" ? 0.884 : (tier === "PARTIALLY_GROUNDED" ? 0.321 : 0.045),
-            latency_ms: 12.4
-          },
-          confidence_tier: tier,
-          final_output: finalOutput,
-          citations: citations,
-          rewritten_query: lastTurn ? `关于【${lastTurn}】: ${query}` : null
+        // Mouse Parallax Effect
+        let mouseX = 0;
+        let mouseY = 0;
+
+        window.addEventListener('mousemove', (e) => {
+            mouseX = (e.clientX / window.innerWidth) - 0.5;
+            mouseY = (e.clientY / window.innerHeight) - 0.5;
+
+            cards.forEach((card, index) => {
+                const speed = (index + 1) * 16;
+                const x = mouseX * speed;
+                const y = mouseY * speed;
+                const baseRot = card.id === 'card-1' || card.id === 'card-4' ? -3 : 2;
+                card.style.transform = `translate(${x}px, ${y}px) rotate(${baseRot}deg)`;
+            });
+
+            dots.forEach((dot, index) => {
+                const speed = (index + 1) * 35;
+                const x = mouseX * speed;
+                const y = mouseY * speed;
+                dot.style.transform = `translate(${x}px, ${y}px)`;
+            });
+        });
+
+        // Drag & Drop Physics
+        cards.forEach(card => {
+            let isDragging = false;
+            let startX, startY, initialX, initialY;
+
+            card.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                // Bring to front
+                cards.forEach(c => c.style.zIndex = 10);
+                card.style.zIndex = 100;
+                startX = e.clientX;
+                startY = e.clientY;
+                const rect = card.getBoundingClientRect();
+                initialX = rect.left;
+                initialY = rect.top;
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                card.style.left = `${initialX + dx}px`;
+                card.style.top = `${initialY + dy}px`;
+                card.style.transform = `rotate(0deg) scale(1.05)`;
+                card.style.boxShadow = `rgba(0, 0, 0, 0.12) 0px 30px 60px`;
+            });
+
+            window.addEventListener('mouseup', () => {
+                if (!isDragging) return;
+                isDragging = false;
+                card.style.transform = `scale(1)`;
+                card.style.boxShadow = `var(--shadow)`;
+            });
+        });
+
+        // Breathing Sine Wave Animation for Dots
+        function animate() {
+            const time = Date.now() * 0.001;
+            dots.forEach((dot, i) => {
+                dot.style.opacity = 0.35 + Math.sin(time + i) * 0.25;
+            });
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+        // Citation Tooltip
+        function showTooltip(e, text) {
+            tooltip.innerText = text;
+            tooltip.style.left = `${e.clientX + 10}px`;
+            tooltip.style.top = `${e.clientY + 15}px`;
+            tooltip.style.opacity = '1';
+        }
+
+        function hideTooltip() {
+            tooltip.style.opacity = '0';
+        }
+
+        // Presets Data
+        const PRESETS = {
+            finance_citation: {
+                query: "出差交通补贴每日最高上限是多少？",
+                domain: "FINANCE",
+                s1_bypassed: false,
+                s1_lat: "7.8ms",
+                s2_score: "4.8★",
+                s2_desc: "Kept 2 highly relevant chunks. Filtered noise.",
+                s3_val: "0.95",
+                s3_tier: "Verified",
+                s3_color: "#10b981",
+                s3_bg: "#ecfdf5",
+                s3_desc: "Zero unsupported facts detected. 100% grounded in source text.",
+                output: '员工每日出差交通补贴上限为 100 元 <span class="citation-tag" onmouseenter="showTooltip(event, \'2026年财务差旅报销规范.pdf: 员工因公出差，每日交通补贴标准上限为 100 元\')" onmouseleave="hideTooltip()">[1]</span>，住宿凭合规发票实报实销上限 450 元 <span class="citation-tag" onmouseenter="showTooltip(event, \'2026年财务差旅报销规范.pdf: 住宿凭发票实报实销上限 450 元\')" onmouseleave="hideTooltip()">[1]</span>。',
+                tier_badge: "Tier 1 · Authoritative",
+                overhead: "28.4ms",
+                t_s1: "7.8ms",
+                t_s2: "18.2ms",
+                t_s3: "12.4ms"
+            },
+            sort_short_circuit: {
+                query: "快速排序的平均时间复杂度是多少？",
+                domain: "ALGO_COMMON",
+                s1_bypassed: true,
+                s1_lat: "6.2ms",
+                s2_score: "Skipped",
+                s2_desc: "Vector search skipped entirely. Zero retrieval cost.",
+                s3_val: "Bypassed",
+                s3_tier: "Direct Pass",
+                s3_color: "#0ea5e9",
+                s3_bg: "#e0f2fe",
+                s3_desc: "General algorithm knowledge. Short-circuited at Stage 1.",
+                output: '快速排序的平均时间复杂度为 O(N log N)，最坏情况下为 O(N^2)。此问题属于常识算法题，网关已动态短路跳过向量库。',
+                tier_badge: "Bypassed · Direct Pass",
+                overhead: "6.2ms",
+                t_s1: "6.2ms",
+                t_s2: "0.0ms",
+                t_s3: "0.0ms"
+            },
+            catfood_hallucination: {
+                query: "我们公司每月发两万块钱的猫粮宠物补贴，具体怎么申领？",
+                domain: "HR_BENEFITS",
+                s1_bypassed: false,
+                s1_lat: "7.5ms",
+                s2_score: "2.1★",
+                s2_desc: "No evidence found in employee handbook.",
+                s3_val: "0.88",
+                s3_tier: "Blocked",
+                s3_color: "#ef4444",
+                s3_bg: "#fee2e2",
+                s3_desc: "Critical hallucination caught. Generating safety response.",
+                output: '🛡️ **【Gatekeeper 防幻觉拦截】**\n经 Stage 3 门禁核验，企业知识库中不存在“每月发两万元猫粮补贴”的任何依据（幻觉概率 88.4%）。已阻断输出并降级安全提示。',
+                tier_badge: "Tier 3 · Blocked",
+                overhead: "31.2ms",
+                t_s1: "7.5ms",
+                t_s2: "12.3ms",
+                t_s3: "11.4ms"
+            },
+            partially_grounded: {
+                query: "如果我这个月交通补贴没有用完，可以累计跨月报销吗？",
+                domain: "FINANCE",
+                s1_bypassed: false,
+                s1_lat: "8.1ms",
+                s2_score: "4.5★",
+                s2_desc: "Base travel rule found; roll-over details missing.",
+                s3_val: "0.32",
+                s3_tier: "Disclaimer",
+                s3_color: "#f59e0b",
+                s3_bg: "#fef3c7",
+                s3_desc: "Core facts verified, but cross-month carryover lacks fine details.",
+                output: '根据差旅规定每日交通补贴上限为 100 元 <span class="citation-tag" onmouseenter="showTooltip(event, \'2026年财务差旅报销规范.pdf: 每日交通补贴上限为 100 元\')" onmouseleave="hideTooltip()">[1]</span>。\n\n⚠️ **免责提示：** 跨月累计未在标准切片明确，请以财务人工审批为准。',
+                tier_badge: "Tier 2 · Disclaimer",
+                overhead: "29.8ms",
+                t_s1: "8.1ms",
+                t_s2: "17.4ms",
+                t_s3: "12.3ms"
+            }
         };
 
-        renderExecutionResult(simData);
-      }, 300);
-    }
+        function loadPreset(key, btn) {
+            document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+            if (btn) btn.classList.add('active');
 
-    function renderExecutionResult(data) {
-      document.getElementById('pipelineStatusText').innerHTML = `
-        <span class="text-emerald-400 font-mono flex items-center gap-1">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-          决策完成 (${data.total_overhead_latency_ms.toFixed(1)}ms)
-        </span>
-      `;
+            const p = PRESETS[key];
+            if (!p) return;
 
-      // 1. Update Stepper Nodes
-      updateStepperNode('step-cache', 'step-cache-val', 'step-cache-time', 
-        data.cache_hit ? 'L2 命中 ⚡' : '未命中 (Miss)', '1.2ms', data.cache_hit ? 'emerald' : 'slate');
-
-      updateStepperNode('step-s1', 'step-s1-val', 'step-s1-time', 
-        data.short_circuited ? '已短路 (Bypass)' : '需检索 (Need RAG)', `${data.arbitration.latency_ms.toFixed(1)}ms`, data.short_circuited ? 'emerald' : 'brand');
-
-      updateStepperNode('step-domain', 'step-domain-val', 'step-domain-time', 
-        data.short_circuited ? '无需路由' : (data.routed_domain || 'DEFAULT'), '6.5ms', 'indigo');
-
-      const keptCount = data.rerank ? data.rerank.kept_count : 0;
-      updateStepperNode('step-s2', 'step-s2-val', 'step-s2-time', 
-        data.short_circuited ? '跳过' : `保留 ${keptCount} / ${candidateChunks.length}`, '18.2ms', 'amber');
-
-      updateStepperNode('step-compress', 'step-compress-val', 'step-compress-time', 
-        data.short_circuited ? '跳过' : '-65% 冗余', '4.1ms', 'slate');
-
-      const isBlocked = data.guardrail.blocked;
-      updateStepperNode('step-s3', 'step-s3-val', 'step-s3-time', 
-        isBlocked ? '拦截熔断 🛡️' : '核验证实 ✅', `${data.guardrail.latency_ms.toFixed(1)}ms`, isBlocked ? 'rose' : 'emerald');
-
-      updateStepperNode('step-citation', 'step-citation-val', 'step-citation-time', 
-        data.citations && data.citations.length > 0 ? `${data.citations.length} 处溯源` : '无角标', '1.5ms', 'brand');
-
-      // 2. Update Verdict Banner & Radar
-      const banner = document.getElementById('verdictBanner');
-      const vIcon = document.getElementById('verdictIcon');
-      const vTitle = document.getElementById('verdictTitle');
-      const vDesc = document.getElementById('verdictDesc');
-      const vTier = document.getElementById('verdictTierBadge');
-      const totalLat = document.getElementById('totalLatencyText');
-
-      totalLat.innerHTML = `${data.total_overhead_latency_ms.toFixed(1)} <span class="text-xs text-slate-400">ms</span>`;
-
-      if (data.confidence_tier === 'HALLUCINATED_BLOCKED') {
-        banner.className = "glass-card rounded-2xl p-5 border-l-4 border-l-rose-500 shadow-glow-rose transition-all duration-300";
-        vIcon.className = "w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center shrink-0";
-        vIcon.innerHTML = `<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>`;
-        vTitle.innerText = "幻觉事实阻断 (Hallucinated Blocked)";
-        vDesc.innerText = "生成内容与检索切片严重冲突或缺乏证据支撑（幻觉概率 > 0.85），网关已掐断输出并执行安全降级。";
-        vTier.className = "px-2 py-0.5 text-[10px] font-bold rounded-full bg-rose-950 text-rose-300 border border-rose-800 font-mono";
-        vTier.innerText = "TIER-3 BLOCKED";
-        document.getElementById('radarScoreText').innerText = `幻觉概率: ${(data.guardrail.hallucination_prob * 100).toFixed(1)}% · 极高风险`;
-        document.getElementById('radarScoreText').className = "font-mono text-xs font-bold text-rose-400";
-      } else if (data.confidence_tier === 'PARTIALLY_GROUNDED') {
-        banner.className = "glass-card rounded-2xl p-5 border-l-4 border-l-amber-500 shadow-glow-amber transition-all duration-300";
-        vIcon.className = "w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0";
-        vIcon.innerHTML = `<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`;
-        vTitle.innerText = "事实边界放行 (Partially Grounded & Disclaimer)";
-        vDesc.innerText = "核心事实已获证据支撑，但包含部分外部推演细节，已自动附加合规免责与边界说明。";
-        vTier.className = "px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-950 text-amber-300 border border-amber-800 font-mono";
-        vTier.innerText = "TIER-2 DISCLAIMER";
-        document.getElementById('radarScoreText').innerText = `幻觉概率: ${(data.guardrail.hallucination_prob * 100).toFixed(1)}% · 中度风险`;
-        document.getElementById('radarScoreText').className = "font-mono text-xs font-bold text-amber-400";
-      } else {
-        banner.className = "glass-card rounded-2xl p-5 border-l-4 border-l-brand-500 shadow-glow-blue transition-all duration-300";
-        vIcon.className = "w-10 h-10 rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center shrink-0";
-        vIcon.innerHTML = `<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`;
-        vTitle.innerText = data.short_circuited ? "常识判定短路 (Direct Bypass Approved)" : "权威佐证放行 (Authoritative Verified)";
-        vDesc.innerText = data.short_circuited ? "命中阶段一白名单与 Noul 决策短路，跳过向量数据库检索，零检索延迟直出。" : "回答内容受检索文档高分切片严格佐证，全链路事实一致性校验通过。";
-        vTier.className = "px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono";
-        vTier.innerText = "TIER-1 VERIFIED";
-        document.getElementById('radarScoreText').innerText = `幻觉概率: ${(data.guardrail.hallucination_prob * 100).toFixed(1)}% · 极低风险`;
-        document.getElementById('radarScoreText').className = "font-mono text-xs font-bold text-emerald-400";
-      }
-
-      // 3. Render Final Output with Interactive Citation Popups
-      renderFinalOutputFormatted(data.final_output, data.citations);
-
-      // 4. Update Latency Waterfall Breakdown
-      document.getElementById('wf-cache-time').innerText = data.cache_hit ? '0.4 ms' : '1.2 ms';
-      document.getElementById('wf-s1-time').innerText = `${data.arbitration.latency_ms.toFixed(1)} ms`;
-      document.getElementById('wf-s2-time').innerText = data.rerank ? `${data.rerank.total_latency_ms.toFixed(1)} ms` : '0.0 ms (Bypassed)';
-      document.getElementById('wf-s3-time').innerText = `${data.guardrail.latency_ms.toFixed(1)} ms`;
-
-      // 5. Update Telemetry Explorer
-      document.getElementById('rawTelemetryJson').innerText = JSON.stringify(data, null, 2);
-    }
-
-    function updateStepperNode(boxId, valId, timeId, valText, timeText, color) {
-      const box = document.getElementById(boxId);
-      const val = document.getElementById(valId);
-      const time = document.getElementById(timeId);
-
-      val.innerText = valText;
-      time.innerText = timeText;
-
-      const colorsMap = {
-        emerald: 'border-emerald-500/60 bg-emerald-950/20 text-emerald-300',
-        brand: 'border-brand-500/60 bg-brand-950/20 text-brand-300',
-        amber: 'border-amber-500/60 bg-amber-950/20 text-amber-300',
-        rose: 'border-rose-500/60 bg-rose-950/20 text-rose-300',
-        indigo: 'border-indigo-500/60 bg-indigo-950/20 text-indigo-300',
-        slate: 'border-slate-800 bg-slate-900/60 text-slate-400'
-      };
-
-      box.className = `rounded-xl p-3 flex flex-col justify-between transition-all duration-300 border ${colorsMap[color] || colorsMap.slate}`;
-    }
-
-    function renderFinalOutputFormatted(text, citations) {
-      const container = document.getElementById('finalOutputBox');
-      if (!text) {
-        container.innerHTML = `<span class="text-slate-500">无内容输出</span>`;
-        return;
-      }
-
-      // Replace markdown [1], [2] with interactive pills
-      let html = text.replace(/\[(\d+)\]/g, (match, p1) => {
-        const citeIndex = parseInt(p1);
-        return `<span class="citation-pill" onmouseenter="showCitationPopover(event, ${citeIndex})" onmouseleave="hideCitationPopover()">[${citeIndex}]</span>`;
-      });
-
-      container.innerHTML = html;
-    }
-
-    function showCitationPopover(event, citeIndex) {
-      const popover = document.getElementById('citationPopover');
-      const targetChunk = candidateChunks[citeIndex - 1] || candidateChunks[0];
-      if (!targetChunk) return;
-
-      document.getElementById('popoverTitle').innerText = `溯源文档切片 [${citeIndex}]: ${targetChunk.id}`;
-      document.getElementById('popoverScore').innerText = `${targetChunk.score}★ (${targetChunk.domain})`;
-      document.getElementById('popoverContent').innerText = targetChunk.content;
-
-      popover.style.left = `${event.clientX + 10}px`;
-      popover.style.top = `${event.clientY + 15}px`;
-      popover.classList.remove('hidden');
-
-      // Highlight corresponding chunk card in list
-      const card = document.getElementById(`chunk-card-${citeIndex - 1}`);
-      if (card) {
-        card.classList.add('border-brand-500', 'bg-brand-950/30');
-      }
-    }
-
-    function hideCitationPopover() {
-      const popover = document.getElementById('citationPopover');
-      popover.classList.add('hidden');
-      candidateChunks.forEach((_, idx) => {
-        const card = document.getElementById(`chunk-card-${idx}`);
-        if (card) {
-          card.classList.remove('border-brand-500', 'bg-brand-950/30');
+            document.getElementById('queryInput').value = p.query;
+            applyPresetData(p);
         }
-      });
-    }
 
-    // Initialize Default Scenario on Load
-    window.addEventListener('DOMContentLoaded', () => {
-      loadScenario('finance_citation');
-    });
-  </script>
+        function applyPresetData(p) {
+            // Card 1
+            document.getElementById('c1-desc').innerText = p.s1_bypassed ? 
+                "通用常识判定命中。短路跳过向量库检索，压降 100% 检索延迟。" : 
+                "领域私有知识判定，需唤醒向量切片检索与精排。";
+            document.getElementById('c1-stat').innerHTML = `${p.s1_lat} <span id="c1-badge" style="color:${p.s1_bypassed ? '#10b981':'#0ea5e9'}; background:${p.s1_bypassed ? '#ecfdf5':'#e0f2fe'};">${p.s1_bypassed ? 'Bypassed ⚡' : 'Need RAG'}</span>`;
+            document.getElementById('c1-curve').setAttribute('d', p.s1_bypassed ? 'M0 40 Q 25 10, 50 8 T 100 5' : 'M0 40 Q 25 35, 50 20 T 100 5');
+
+            // Card 2
+            document.getElementById('c2-stat').innerHTML = `${p.s2_score} <span id="c2-badge" style="color:#ea580c; background:#ffedd5;">${p.s1_bypassed ? 'Skipped' : 'Top Chunks'}</span>`;
+            document.getElementById('c2-desc').innerText = p.s2_desc;
+
+            // Card 3
+            document.getElementById('c3-stat').innerHTML = `${p.s3_val} <span style="color:${p.s3_color}; background:${p.s3_bg};">${p.s3_tier}</span>`;
+            document.getElementById('c3-desc').innerText = p.s3_desc;
+
+            // Card 4
+            document.getElementById('finalOutputContent').innerHTML = p.output;
+            document.getElementById('outputTier').innerText = p.tier_badge;
+            document.getElementById('outputLatency').innerText = `Overhead: ${p.overhead}`;
+
+            // Card 5 Telemetry
+            document.getElementById('t-s1').innerText = p.t_s1;
+            document.getElementById('t-s2').innerText = p.t_s2;
+            document.getElementById('t-s3').innerText = p.t_s3;
+
+            // Card 6 Domain
+            document.getElementById('c6-domain').innerText = p.domain;
+        }
+
+        async function executePipeline() {
+            const query = document.getElementById('queryInput').value.trim();
+            if (!query) return;
+
+            if (mode === 'live') {
+                try {
+                    const resp = await fetch('http://localhost:8080/v1/gatekeeper/audit', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query: query, enable_semantic_cache: true })
+                    });
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        // Render live API data
+                        document.getElementById('finalOutputContent').innerHTML = data.final_output;
+                        document.getElementById('outputLatency').innerText = `Overhead: ${data.total_overhead_latency_ms.toFixed(1)}ms`;
+                        return;
+                    }
+                } catch (e) {
+                    console.warn("Live API offline, running simulation:", e);
+                }
+            }
+
+            // Fallback to closest preset or heuristic
+            if (query.includes("排序") || query.includes("复杂度") || query.includes("算法")) {
+                applyPresetData(PRESETS.sort_short_circuit);
+            } else if (query.includes("猫粮") || query.includes("两万")) {
+                applyPresetData(PRESETS.catfood_hallucination);
+            } else if (query.includes("跨月") || query.includes("累计")) {
+                applyPresetData(PRESETS.partially_grounded);
+            } else {
+                applyPresetData(PRESETS.finance_citation);
+            }
+        }
+    </script>
 </body>
 </html>
