@@ -147,3 +147,6 @@ class PipelineResponse(BaseModel):
     citations: list[dict] = Field(default_factory=list, description="Grounding source citations")
     total_overhead_latency_ms: float
     rewritten_query: Optional[str] = None
+    routed_domain: Optional[str] = Field(default=None, description="Classified knowledge domain e.g. FINANCE_EXPENSE")
+    confidence_tier: Optional[str] = Field(default=None, description="Tier: AUTHORITATIVE_VERIFIED | PARTIALLY_GROUNDED | HALLUCINATED_BLOCKED")
+    disclaimer_applied: bool = Field(default=False, description="True if adaptive boundary disclaimer was injected")

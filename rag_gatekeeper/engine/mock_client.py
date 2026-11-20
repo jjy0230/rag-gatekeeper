@@ -110,10 +110,30 @@ class MockDecisionEngine(DecisionEngine):
     ) -> ChoiceResult:
         start_time = time.perf_counter()
         await self._simulate_delay()
+
+        ctx_lower = context.lower()
         selected = options[0] if options else "unknown"
+        probs = {opt: 0.1 for opt in options}
+
+        # Simulated semantic choice for domain routing
+        if any(k in ctx_lower for k in ["报销", "发票", "住宿", "财报", "补贴", "交通"]) and "FINANCE_EXPENSE" in options:
+            selected = "FINANCE_EXPENSE"
+            probs["FINANCE_EXPENSE"] = 0.88
+        elif any(k in ctx_lower for k in ["年假", "离职", "入职", "福利", "社保", "考勤"]) and "HR_POLICY" in options:
+            selected = "HR_POLICY"
+            probs["HR_POLICY"] = 0.90
+        elif any(k in ctx_lower for k in ["vpn", "代码", "服务器", "系统", "工单"]) and "IT_DEVOPS" in options:
+            selected = "IT_DEVOPS"
+            probs["IT_DEVOPS"] = 0.85
+        elif any(k in ctx_lower for k in ["合同", "保密", "协议", "法务", "nda"]) and "LEGAL_CONTRACT" in options:
+            selected = "LEGAL_CONTRACT"
+            probs["LEGAL_CONTRACT"] = 0.87
+        elif options:
+            probs[options[0]] = 0.70
+
         elapsed = (time.perf_counter() - start_time) * 1000.0
         return ChoiceResult(
             selected=selected,
-            probabilities={opt: 1.0 / len(options) for opt in options},
+            probabilities=probs,
             latency_ms=elapsed,
         )

@@ -15,6 +15,8 @@ from rag_gatekeeper.semantic_cache import semantic_cache
 from rag_gatekeeper.citation_injector import citation_injector
 from rag_gatekeeper.context_compressor import context_compressor
 from rag_gatekeeper.query_rewriter import query_rewriter
+from rag_gatekeeper.domain_router import DomainRouter, KnowledgeDomain
+from rag_gatekeeper.confidence_radar import confidence_radar
 from rag_gatekeeper.pipeline import RAGGatekeeperPipeline
 from rag_gatekeeper.server import app
 from rag_gatekeeper.models import (
@@ -162,6 +164,49 @@ async def test_pipeline_orchestration(mock_engine):
     assert pipe_res.guardrail.blocked is False
     assert "[1]" in pipe_res.final_output
     assert "参考来源：" in pipe_res.final_output
+    assert pipe_res.confidence_tier == "AUTHORITATIVE_VERIFIED"
+
+
+@pytest.mark.asyncio
+async def test_domain_router_choice(mock_engine):
+    """Verify Jev Choice multi-domain routing for HR and Finance."""
+    router = DomainRouter(mock_engine)
+    res_fin = await router.route_query("差旅发票住宿每天报销上限")
+    assert res_fin.target_domain in ["FINANCE_EXPENSE", "HR_POLICY", "IT_DEVOPS", "LEGAL_CONTRACT"]
+    assert res_fin.confidence > 0.5
+
+
+def test_confidence_radar():
+    """Verify 3-tier confidence radar (Authoritative, Partial with disclaimer, Blocked)."""
+    # Tier 1: Authoritative (prob=0.05 -> conf=0.95)
+    t1 = confidence_radar.evaluate_tier("员工守则严禁携带宠物。", hallucination_prob=0.05)
+    assert t1.tier == "AUTHORITATIVE_VERIFIED"
+    assert t1.disclaimer_added is False
+
+    # Tier 2: Partially grounded (prob=0.30 -> conf=0.70)
+    t2 = confidence_radar.evaluate_tier("差旅每日补贴100元，建议找财务审批。", hallucination_prob=0.30)
+    assert t2.tier == "PARTIALLY_GROUNDED"
+    assert t2.disclaimer_added is True
+    assert "事实边界指引" in t2.final_output
+
+    # Tier 3: Blocked (prob=0.85 -> conf=0.15)
+    t3 = confidence_radar.evaluate_tier("虚构捏造事实。", hallucination_prob=0.85)
+    assert t3.tier == "HALLUCINATED_BLOCKED"
+    assert "安全拦截" in t3.final_output
+
+
+def test_partitioned_vector_search():
+    """Verify vector search partition key filtering."""
+    store = InMemoryHybridStore()
+    docs = [
+        ChunkItem(id="hr_1", content="HR年假规定", metadata={"partition_key": "hr"}),
+        ChunkItem(id="fin_1", content="财务报销规定", metadata={"partition_key": "finance"}),
+    ]
+    store.upsert_chunks(docs)
+
+    res_hr = store.search("规定", top_k=5, partition_key="hr")
+    assert len(res_hr) == 1
+    assert res_hr[0].id == "hr_1"
 
 
 @pytest.mark.asyncio
@@ -244,7 +289,6 @@ def test_context_compressor():
     )
     compressed = context_compressor.compress_chunk("差旅每天补贴多少", chunk)
     assert "差旅补贴标准为每日100元交通补助" in compressed.content
-    # Original length should be longer than compressed
     assert compressed.metadata["compressed"] is True
     assert compressed.metadata["compressed_len"] < compressed.metadata["original_len"]
 
@@ -284,7 +328,12 @@ async def test_api_server_proxy_and_metrics():
         assert resp.status_code == 200
         assert resp.json()["status"] == "healthy"
 
-        # 2. Non-stream chat completion
+        # 2. Domains list
+        res_doms = await client.get("/v1/gatekeeper/domains")
+        assert res_doms.status_code == 200
+        assert len(res_doms.json()) >= 4
+
+        # 3. Non-stream chat completion
         body_non_stream = {
             "model": "gpt-4o",
             "messages": [{"role": "user", "content": "你好，写一个hello world"}],
@@ -297,7 +346,7 @@ async def test_api_server_proxy_and_metrics():
         assert "choices" in data
         assert "gatekeeper" in data
 
-        # 3. Stream chat completion
+        # 4. Stream chat completion
         body_stream = {
             "model": "gpt-4o",
             "messages": [{"role": "user", "content": "公司差旅报销政策"}],
@@ -311,12 +360,12 @@ async def test_api_server_proxy_and_metrics():
         assert "[DONE]" in text_stream
         assert "gatekeeper_audit" in text_stream
 
-        # 4. Metrics endpoint
+        # 5. Metrics endpoint
         res_metrics = await client.get("/metrics")
         assert res_metrics.status_code == 200
         assert "rag_gk_requests_total" in res_metrics.text
 
-        # 5. Dynamic config reload
+        # 6. Dynamic config reload
         reload_payload = {
             "FORCE_RETRIEVAL_KEYWORDS": ["特急工单", "CEO审批"],
             "RERANK_SCORE_THRESHOLD": 3.8,
@@ -326,7 +375,7 @@ async def test_api_server_proxy_and_metrics():
         assert res_reload.json()["status"] == "reloaded"
         assert settings.RERANK_SCORE_THRESHOLD == 3.8
 
-        # 6. Dashboard HTML endpoint
+        # 7. Dashboard HTML endpoint
         res_dash = await client.get("/dashboard")
         assert res_dash.status_code == 200
         assert "RAG-Gatekeeper" in res_dash.text

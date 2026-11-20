@@ -93,14 +93,25 @@ class InMemoryHybridStore:
         self._chunks.clear()
         self._fitted = False
 
-    def search(self, query: str, top_k: int = 10) -> list[ChunkItem]:
-        """Perform hybrid search with Reciprocal Rank Fusion (RRF)."""
+    def search(self, query: str, top_k: int = 10, partition_key: Optional[str] = None) -> list[ChunkItem]:
+        """Perform hybrid search with Reciprocal Rank Fusion (RRF) and optional partition isolation."""
         if not self._chunks or not self._fitted:
             return []
 
+        # If partition_key specified, filter candidate indices
+        valid_indices = set(range(len(self._chunks)))
+        if partition_key:
+            valid_indices = {
+                i for i, c in enumerate(self._chunks)
+                if c.metadata.get("partition_key") == partition_key
+            }
+            if not valid_indices:
+                # If partition has no chunks, fallback to global
+                valid_indices = set(range(len(self._chunks)))
+
         # 1. Sparse BM25 retrieval ranking
         bm25_scores = self._bm25.get_scores(query)
-        bm25_ranked = sorted(range(len(self._chunks)), key=lambda i: bm25_scores[i], reverse=True)
+        bm25_ranked = sorted(valid_indices, key=lambda i: bm25_scores[i], reverse=True)
 
         # 2. Simulated Dense / Token overlap ranking
         def overlap_score(idx: int) -> float:
@@ -111,7 +122,7 @@ class InMemoryHybridStore:
             return len(q_set & c_set) / len(q_set)
 
         dense_scores = [overlap_score(i) for i in range(len(self._chunks))]
-        dense_ranked = sorted(range(len(self._chunks)), key=lambda i: dense_scores[i], reverse=True)
+        dense_ranked = sorted(valid_indices, key=lambda i: dense_scores[i], reverse=True)
 
         # 3. Reciprocal Rank Fusion (RRF) with constant k=60
         k = 60

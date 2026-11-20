@@ -1,4 +1,4 @@
-"""End-to-end RAG Gatekeeper Pipeline orchestration with Semantic Cache, De-referencing, Compression & Citations."""
+"""End-to-end RAG Gatekeeper Pipeline orchestration with Domain Routing, Semantic Cache, Compression, Citations & Confidence Radar."""
 
 import time
 import logging
@@ -7,6 +7,8 @@ from rag_gatekeeper.engine.interface import DecisionEngine
 from rag_gatekeeper.stages.stage1_arbitration import RetrievalArbitrator
 from rag_gatekeeper.stages.stage2_rerank import ChunkReranker
 from rag_gatekeeper.stages.stage3_guardrail import HallucinationGuardrail
+from rag_gatekeeper.domain_router import DomainRouter, DomainRoutingResult
+from rag_gatekeeper.confidence_radar import confidence_radar
 from rag_gatekeeper.semantic_cache import semantic_cache
 from rag_gatekeeper.query_rewriter import query_rewriter
 from rag_gatekeeper.context_compressor import context_compressor
@@ -24,9 +26,9 @@ logger = logging.getLogger(__name__)
 
 
 class RAGGatekeeperPipeline:
-    """Orchestrates Semantic Cache -> De-referencing -> Stage 1 -> Retrieval ->
+    """Orchestrates Semantic Cache -> De-referencing -> Stage 1 -> Domain Routing ->
 
-    Stage 2 -> Compression -> LLM -> Stage 3 -> Footnote Citation Injection.
+    Retrieval -> Stage 2 -> Compression -> LLM -> Stage 3 -> Radar & Footnote Citations.
     """
 
     def __init__(self, engine: DecisionEngine):
@@ -34,11 +36,12 @@ class RAGGatekeeperPipeline:
         self.stage1 = RetrievalArbitrator(engine)
         self.stage2 = ChunkReranker(engine)
         self.stage3 = HallucinationGuardrail(engine)
+        self.domain_router = DomainRouter(engine)
 
     async def execute(
         self,
         request: PipelineRequest,
-        retriever_hook: Optional[Callable[[str], Awaitable[list[ChunkItem]]]] = None,
+        retriever_hook: Optional[Callable[[str, Optional[str]], Awaitable[list[ChunkItem]]]] = None,
         generator_hook: Optional[Callable[[str, list[str]], Awaitable[str]]] = None,
     ) -> PipelineResponse:
         start_time = time.perf_counter()
@@ -61,6 +64,7 @@ class RAGGatekeeperPipeline:
                     final_output=cached_entry["response"],
                     citations=cached_entry.get("citations", []),
                     total_overhead_latency_ms=overhead,
+                    confidence_tier="AUTHORITATIVE_VERIFIED",
                 )
 
         # ----------------------------------------------------
@@ -87,7 +91,6 @@ class RAGGatekeeperPipeline:
                 final_output = "【直连回答】此问题判定为通用常识或无需外部知识库支持，已绕过向量数据库直接生成。"
 
             overhead = (time.perf_counter() - start_time) * 1000.0
-            # Cache safe short-circuited answer
             if request.enable_semantic_cache:
                 semantic_cache.set(request.query, final_output)
 
@@ -102,14 +105,26 @@ class RAGGatekeeperPipeline:
                 citations=[],
                 total_overhead_latency_ms=overhead,
                 rewritten_query=active_query if was_rewritten else None,
+                confidence_tier="AUTHORITATIVE_VERIFIED",
             )
 
         # ----------------------------------------------------
-        # Vector Retrieval Phase
+        # Step 1.5: Multi-Domain Knowledge Routing (Jev Choice)
+        # ----------------------------------------------------
+        route_res = await self.domain_router.route_query(active_query)
+        target_partition = route_res.target_partition_key
+        logger.info("Query routed to domain partition: %s (%s)", route_res.target_domain, target_partition)
+
+        # ----------------------------------------------------
+        # Vector Retrieval Phase (with Partition Isolation)
         # ----------------------------------------------------
         candidate_chunks: list[ChunkItem] = []
         if retriever_hook:
-            candidate_chunks = await retriever_hook(active_query)
+            # Pass partition_key if retriever hook supports it
+            try:
+                candidate_chunks = await retriever_hook(active_query, target_partition)
+            except TypeError:
+                candidate_chunks = await retriever_hook(active_query)
         elif request.candidate_chunks:
             candidate_chunks = request.candidate_chunks
 
@@ -155,21 +170,28 @@ class RAGGatekeeperPipeline:
             )
         )
 
-        final_output_text = guardrail_res.final_answer
+        # ----------------------------------------------------
+        # Step 3.2: 3-Tier Confidence Radar & Adaptive Disclaimers
+        # ----------------------------------------------------
+        tier_res = confidence_radar.evaluate_tier(
+            guardrail_res.final_answer,
+            guardrail_res.hallucination_prob,
+        )
+
+        final_output_text = tier_res.final_output
         citation_records = []
 
         # ----------------------------------------------------
-        # Step 3.5: Citation Footnote Injection (if not blocked)
+        # Step 3.5: Citation Footnote Injection
         # ----------------------------------------------------
-        if request.enable_citations and not guardrail_res.blocked and effective_chunks:
+        if request.enable_citations and tier_res.tier != "HALLUCINATED_BLOCKED" and effective_chunks:
             cite_res = citation_injector.inject_citations(final_output_text, effective_chunks)
             final_output_text = cite_res.annotated_answer
             citation_records = [c.model_dump() for c in cite_res.citations]
 
         overhead = (time.perf_counter() - start_time) * 1000.0
 
-        # Save to semantic cache if answer is deemed safe and not degraded
-        if request.enable_semantic_cache and not guardrail_res.blocked:
+        if request.enable_semantic_cache and tier_res.tier != "HALLUCINATED_BLOCKED":
             semantic_cache.set(request.query, final_output_text, citations=citation_records)
 
         return PipelineResponse(
@@ -183,4 +205,7 @@ class RAGGatekeeperPipeline:
             citations=citation_records,
             total_overhead_latency_ms=overhead,
             rewritten_query=active_query if was_rewritten else None,
+            routed_domain=route_res.target_domain,
+            confidence_tier=tier_res.tier,
+            disclaimer_applied=tier_res.disclaimer_added,
         )

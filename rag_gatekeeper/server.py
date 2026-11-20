@@ -153,6 +153,25 @@ async def clear_cache():
 
 
 # ==========================================
+# Domain Router Endpoints
+# ==========================================
+
+from rag_gatekeeper.domain_router import KnowledgeDomain
+
+@app.get("/v1/gatekeeper/domains", response_model=list[KnowledgeDomain])
+async def list_knowledge_domains():
+    """List registered knowledge base domains."""
+    return pipeline.domain_router.list_domains()
+
+
+@app.post("/v1/gatekeeper/domains/register")
+async def register_knowledge_domain(domain: KnowledgeDomain):
+    """Register or update a knowledge domain partition."""
+    pipeline.domain_router.register_domain(domain)
+    return {"status": "registered", "domain": domain.model_dump()}
+
+
+# ==========================================
 # Native Vector Store & Knowledge Endpoints
 # ==========================================
 
@@ -253,13 +272,11 @@ async def run_pipeline(req: PipelineRequest):
     """Execute end-to-end gatekeeper arbitration, rerank & verification."""
     metrics_data["requests_total"] += 1
     try:
-        # If no candidate chunks provided, automatically retrieve from native hybrid store
-        chunks_to_use = req.candidate_chunks
-        if not chunks_to_use and vector_store._chunks:
-            chunks_to_use = vector_store.search(req.query, top_k=5)
+        # Define native retriever hook with partition key support
+        async def _native_retriever(query: str, partition_key: Optional[str] = None):
+            return vector_store.search(query, top_k=5, partition_key=partition_key)
 
-        request_with_chunks = req.model_copy(update={"candidate_chunks": chunks_to_use})
-        res = await pipeline.execute(request_with_chunks)
+        res = await pipeline.execute(req, retriever_hook=_native_retriever if vector_store._chunks else None)
 
         if res.short_circuited:
             metrics_data["stage1_short_circuited_total"] += 1
