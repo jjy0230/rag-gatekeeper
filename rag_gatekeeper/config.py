@@ -1,6 +1,6 @@
 """Configuration settings for RAG-Gatekeeper gateway."""
 
-from typing import Literal
+from typing import Literal, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,6 +43,11 @@ class GatekeeperConfig(BaseSettings):
         "为保障信息准确性，已阻断输出。请尝试补充上下文或调整提问范围。"
     )
 
+    # Upstream LLM backend (for transparent OpenAI proxying)
+    UPSTREAM_LLM_URL: Optional[str] = None
+    UPSTREAM_LLM_API_KEY: str = "EMPTY"
+    UPSTREAM_TIMEOUT_SEC: float = 60.0
+
     model_config = SettingsConfigDict(
         env_prefix="RAG_GK_",
         env_file=".env",
@@ -52,3 +57,11 @@ class GatekeeperConfig(BaseSettings):
 
 # Global settings singleton
 settings = GatekeeperConfig()
+
+
+def reload_settings(updates: dict) -> GatekeeperConfig:
+    """Dynamically update settings at runtime."""
+    for key, val in updates.items():
+        if hasattr(settings, key):
+            setattr(settings, key, val)
+    return settings

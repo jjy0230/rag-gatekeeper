@@ -9,6 +9,7 @@ root_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(root_dir))
 
 from rag_gatekeeper.config import settings
+from rag_gatekeeper.matcher import AhoCorasickMatcher
 from rag_gatekeeper.engine.mock_client import MockDecisionEngine
 from rag_gatekeeper.stages.stage1_arbitration import RetrievalArbitrator
 from rag_gatekeeper.stages.stage2_rerank import ChunkReranker
@@ -29,21 +30,28 @@ async def main():
     print("========================================")
     engine = MockDecisionEngine(simulated_latency_ms=0.0)
 
+    # Test 0: Aho-Corasick Matcher
+    print("[1/7] Testing Aho-Corasick Multi-Pattern Matcher...")
+    matcher = AhoCorasickMatcher(["内部规范", "SLA", "差旅报销"])
+    assert matcher.has_any("内部规范变更通知") is True
+    assert matcher.has_any("公开常识问答") is False
+    print("      ✓ Aho-Corasick Automaton passed.")
+
     # Test 1: Stage 1 Short Circuit
-    print("[1/6] Testing Stage 1 Short-circuiting...")
+    print("[2/7] Testing Stage 1 Short-circuiting...")
     stage1 = RetrievalArbitrator(engine)
     res1 = await stage1.arbitrate(ArbitrationRequest(query="你好，请问快速排序的时间复杂度是多少？"))
     assert res1.needs_external_knowledge is False, f"Expected False, got {res1}"
     print("      ✓ Stage 1 Short-circuit passed.")
 
     # Test 2: Stage 1 Retrieval Trigger
-    print("[2/6] Testing Stage 1 Knowledge Retrieval Trigger...")
+    print("[3/7] Testing Stage 1 Knowledge Retrieval Trigger...")
     res2 = await stage1.arbitrate(ArbitrationRequest(query="请帮我查询我们部门最新的差旅报销审批标准"))
     assert res2.needs_external_knowledge is True, f"Expected True, got {res2}"
     print("      ✓ Stage 1 Trigger passed.")
 
     # Test 3: Stage 2 Rerank & Noise Filtering
-    print("[3/6] Testing Stage 2 Reranking & Filtering...")
+    print("[4/7] Testing Stage 2 Reranking & Filtering...")
     stage2 = ChunkReranker(engine)
     chunks = [
         ChunkItem(id="c1", content="核心条款：差旅每天交通补贴为 100 元"),
@@ -56,7 +64,7 @@ async def main():
     print("      ✓ Stage 2 Noise Filtering passed.")
 
     # Test 4: Stage 2 Anti-Recall-Cliff Fallback
-    print("[4/6] Testing Stage 2 Anti-Recall-Cliff Fallback...")
+    print("[5/7] Testing Stage 2 Anti-Recall-Cliff Fallback...")
     low_chunks = [
         ChunkItem(id="c1", content="无关免责声明一"),
         ChunkItem(id="c2", content="无关免责声明二"),
@@ -67,7 +75,7 @@ async def main():
     print("      ✓ Stage 2 Fallback Safeguard passed.")
 
     # Test 5: Stage 3 Hallucination Block
-    print("[5/6] Testing Stage 3 Hallucination Blocking...")
+    print("[6/7] Testing Stage 3 Hallucination Blocking...")
     stage3 = HallucinationGuardrail(engine)
     req5 = GuardrailRequest(
         query="公司允许带宠物上班吗？",
@@ -81,7 +89,7 @@ async def main():
     print("      ✓ Stage 3 Hallucination Block & Fallback Template passed.")
 
     # Test 6: Pipeline End-to-End
-    print("[6/6] Testing End-to-End Pipeline...")
+    print("[7/7] Testing End-to-End Pipeline...")
     pipeline = RAGGatekeeperPipeline(engine)
     pipe_res = await pipeline.execute(
         PipelineRequest(
@@ -98,7 +106,7 @@ async def main():
     assert pipe_res.guardrail.blocked is False
     print("      ✓ Pipeline End-to-End passed.")
 
-    print("\nALL 6 VERIFICATION SUITES PASSED SUCCESSFULLY! (100% OK)")
+    print("\nALL 7 VERIFICATION SUITES PASSED SUCCESSFULLY! (100% OK)")
 
 
 if __name__ == "__main__":

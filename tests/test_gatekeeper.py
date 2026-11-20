@@ -1,12 +1,15 @@
 """Comprehensive test suite for RAG-Gatekeeper."""
 
 import pytest
+import httpx
 from rag_gatekeeper.config import settings
+from rag_gatekeeper.matcher import AhoCorasickMatcher
 from rag_gatekeeper.engine.mock_client import MockDecisionEngine
 from rag_gatekeeper.stages.stage1_arbitration import RetrievalArbitrator
 from rag_gatekeeper.stages.stage2_rerank import ChunkReranker
 from rag_gatekeeper.stages.stage3_guardrail import HallucinationGuardrail
 from rag_gatekeeper.pipeline import RAGGatekeeperPipeline
+from rag_gatekeeper.server import app
 from rag_gatekeeper.models import (
     ArbitrationRequest,
     ChunkItem,
@@ -20,6 +23,17 @@ from rag_gatekeeper.models import (
 def mock_engine():
     # Zero simulated delay for instant tests
     return MockDecisionEngine(simulated_latency_ms=0.0)
+
+
+def test_aho_corasick_matcher():
+    """Verify Aho-Corasick automaton matching accuracy and performance."""
+    keywords = ["内部规范", "SLA", "差旅报销", "Q3财报"]
+    matcher = AhoCorasickMatcher(keywords)
+
+    assert matcher.has_any("请问关于内部规范的修改通知") is True
+    assert matcher.has_any("SLA要求多少？") is True
+    assert matcher.has_any("完全不相干的公开问题") is False
+    assert set(matcher.search_all("请参考SLA和内部规范")) == {"SLA", "内部规范"}
 
 
 @pytest.mark.asyncio
@@ -142,3 +156,56 @@ async def test_pipeline_orchestration(mock_engine):
     assert pipe_res.guardrail is not None
     assert pipe_res.guardrail.blocked is False
     assert pipe_res.total_overhead_latency_ms >= 0.0
+
+
+@pytest.mark.asyncio
+async def test_api_server_proxy_and_metrics():
+    """Verify FastAPI server proxy (non-stream & SSE stream) and metrics endpoints."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Healthz
+        resp = await client.get("/healthz")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "healthy"
+
+        # 2. Non-stream chat completion
+        body_non_stream = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "你好，写一个hello world"}],
+            "stream": False,
+        }
+        res_ns = await client.post("/v1/chat/completions", json=body_non_stream)
+        assert res_ns.status_code == 200
+        assert "X-Gatekeeper-Short-Circuited" in res_ns.headers
+        data = res_ns.json()
+        assert "choices" in data
+        assert "gatekeeper" in data
+
+        # 3. Stream chat completion
+        body_stream = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "公司差旅报销政策"}],
+            "stream": True,
+        }
+        res_stream = await client.post("/v1/chat/completions", json=body_stream)
+        assert res_stream.status_code == 200
+        assert "text/event-stream" in res_stream.headers["content-type"]
+        text_stream = res_stream.text
+        assert "data: " in text_stream
+        assert "[DONE]" in text_stream
+        assert "gatekeeper_audit" in text_stream
+
+        # 4. Metrics endpoint
+        res_metrics = await client.get("/metrics")
+        assert res_metrics.status_code == 200
+        assert "rag_gk_requests_total" in res_metrics.text
+
+        # 5. Dynamic config reload
+        reload_payload = {
+            "FORCE_RETRIEVAL_KEYWORDS": ["特急工单", "CEO审批"],
+            "RERANK_SCORE_THRESHOLD": 3.8,
+        }
+        res_reload = await client.post("/v1/gatekeeper/config/reload", json=reload_payload)
+        assert res_reload.status_code == 200
+        assert res_reload.json()["status"] == "reloaded"
+        assert settings.RERANK_SCORE_THRESHOLD == 3.8
