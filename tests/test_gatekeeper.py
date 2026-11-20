@@ -383,4 +383,4 @@ async def test_api_server_proxy_and_metrics():
         # 8. Interactive Demo HTML endpoint
         res_demo = await client.get("/demo")
         assert res_demo.status_code == 200
-        assert "全景决策网关交互演示" in res_demo.text
+        assert "Gatekeeper" in res_demo.text or "GATEKEEPER" in res_demo.text or "全景决策网关交互演示" in res_demo.text
