@@ -1,9 +1,11 @@
-"""FastAPI Gateway Server for RAG-Gatekeeper with streaming proxy and dynamic policy reload."""
+"""FastAPI Gateway Server for RAG-Gatekeeper with UI Dashboard, Native Vector Store, and Audit Sink."""
 
 import time
 import logging
+from pathlib import Path
 from typing import Any, Optional
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -14,6 +16,8 @@ from rag_gatekeeper.stages.stage2_rerank import ChunkReranker
 from rag_gatekeeper.stages.stage3_guardrail import HallucinationGuardrail
 from rag_gatekeeper.pipeline import RAGGatekeeperPipeline
 from rag_gatekeeper.proxy import GatewayProxy
+from rag_gatekeeper.vector_store import InMemoryHybridStore
+from rag_gatekeeper.audit_sink import audit_sink
 from rag_gatekeeper.models import (
     ArbitrationRequest,
     ArbitrationResponse,
@@ -23,15 +27,16 @@ from rag_gatekeeper.models import (
     GuardrailResponse,
     PipelineRequest,
     PipelineResponse,
+    ChunkItem,
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("rag_gatekeeper")
 
 app = FastAPI(
-    title="RAG-Gatekeeper",
+    title="RAG-Gatekeeper Enterprise",
     description="Edge dynamic short-circuiting, reranking & hallucination guardrail gateway powered by Jev",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 # CORS middleware for Web/UI dashboards
@@ -49,6 +54,7 @@ stage2 = ChunkReranker(engine)
 stage3 = HallucinationGuardrail(engine)
 pipeline = RAGGatekeeperPipeline(engine)
 gateway_proxy = GatewayProxy(stage1, stage2, stage3)
+vector_store = InMemoryHybridStore()
 
 # Global Telemetry Counters
 metrics_data = {
@@ -69,8 +75,18 @@ async def health_check():
         "mock_engine": settings.USE_MOCK_ENGINE,
         "jev_endpoint": settings.JEV_ENDPOINT,
         "upstream_configured": bool(settings.UPSTREAM_LLM_URL),
-        "version": "0.2.0",
+        "version": "0.3.0-enterprise",
     }
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def serve_dashboard():
+    """Serve enterprise interactive management web console."""
+    html_path = Path(__file__).resolve().parent / "ui" / "dashboard.html"
+    if html_path.exists():
+        with open(html_path, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    return HTMLResponse(content="<h1>Dashboard UI file not found</h1>", status_code=404)
 
 
 @app.get("/metrics")
@@ -118,6 +134,47 @@ async def reload_configuration(req: ConfigReloadRequest):
     return {"status": "reloaded", "applied_updates": updates}
 
 
+# ==========================================
+# Native Vector Store & Knowledge Endpoints
+# ==========================================
+
+class UpsertKnowledgeRequest(BaseModel):
+    chunks: list[ChunkItem]
+
+
+@app.post("/v1/gatekeeper/knowledge/upsert")
+async def upsert_knowledge_base(req: UpsertKnowledgeRequest):
+    """Upsert documents into native in-memory hybrid vector store."""
+    vector_store.upsert_chunks(req.chunks)
+    return {"status": "success", "count": len(req.chunks)}
+
+
+class SearchKnowledgeRequest(BaseModel):
+    query: str
+    top_k: int = 5
+
+
+@app.post("/v1/gatekeeper/knowledge/search", response_model=list[ChunkItem])
+async def search_knowledge_base(req: SearchKnowledgeRequest):
+    """Search native hybrid vector store."""
+    return vector_store.search(req.query, top_k=req.top_k)
+
+
+# ==========================================
+# Audit & Training Dataset Export
+# ==========================================
+
+@app.post("/v1/gatekeeper/audit/export")
+async def export_audit_training_pairs():
+    """Export Jev calibration pairs from local audit sink."""
+    count = audit_sink.export_jev_finetuning_dataset()
+    return {"status": "exported", "pairs_count": count, "output_path": "data/jev_training_pairs.jsonl"}
+
+
+# ==========================================
+# Core Decision Gatekeeper Endpoints
+# ==========================================
+
 @app.post("/v1/gatekeeper/arbitrate", response_model=ArbitrationResponse)
 async def arbitrate_retrieval(req: ArbitrationRequest):
     """Stage 1: Decide whether query needs external knowledge retrieval."""
@@ -128,6 +185,13 @@ async def arbitrate_retrieval(req: ArbitrationRequest):
             metrics_data["stage1_retrieval_required_total"] += 1
         else:
             metrics_data["stage1_short_circuited_total"] += 1
+
+        # Audit logging
+        await audit_sink.log_event("STAGE1_ARBITRATION", {
+            "query": req.query,
+            "needs_external_knowledge": res.needs_external_knowledge,
+            "confidence": res.confidence,
+        })
         return res
     except Exception as exc:
         logger.error("Arbitration error: %s", exc)
@@ -154,6 +218,12 @@ async def verify_hallucination(req: GuardrailRequest):
         res = await stage3.verify(req)
         if res.blocked:
             metrics_data["stage3_blocked_total"] += 1
+            await audit_sink.log_event("STAGE3_HALLUCINATION_BLOCKED", {
+                "query": req.query,
+                "answer": req.answer,
+                "evidence": req.evidence_chunks,
+                "hallucination_prob": res.hallucination_prob,
+            })
         return res
     except Exception as exc:
         logger.error("Guardrail error: %s", exc)
@@ -165,7 +235,14 @@ async def run_pipeline(req: PipelineRequest):
     """Execute end-to-end gatekeeper arbitration, rerank & verification."""
     metrics_data["requests_total"] += 1
     try:
-        res = await pipeline.execute(req)
+        # If no candidate chunks provided, automatically retrieve from native hybrid store
+        chunks_to_use = req.candidate_chunks
+        if not chunks_to_use and vector_store._chunks:
+            chunks_to_use = vector_store.search(req.query, top_k=5)
+
+        request_with_chunks = req.model_copy(update={"candidate_chunks": chunks_to_use})
+        res = await pipeline.execute(request_with_chunks)
+
         if res.short_circuited:
             metrics_data["stage1_short_circuited_total"] += 1
         else:
@@ -178,7 +255,6 @@ async def run_pipeline(req: PipelineRequest):
 
 # ==========================================
 # OpenAI-Compatible Reverse Proxy Endpoint
-# (Allows zero-code integration with Dify, LangChain, LlamaIndex)
 # ==========================================
 
 @app.post("/v1/chat/completions")

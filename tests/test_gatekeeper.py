@@ -8,6 +8,9 @@ from rag_gatekeeper.engine.mock_client import MockDecisionEngine
 from rag_gatekeeper.stages.stage1_arbitration import RetrievalArbitrator
 from rag_gatekeeper.stages.stage2_rerank import ChunkReranker
 from rag_gatekeeper.stages.stage3_guardrail import HallucinationGuardrail
+from rag_gatekeeper.speculative_guardrail import SpeculativeSentenceGuardrail
+from rag_gatekeeper.vector_store import InMemoryHybridStore
+from rag_gatekeeper.audit_sink import audit_sink
 from rag_gatekeeper.pipeline import RAGGatekeeperPipeline
 from rag_gatekeeper.server import app
 from rag_gatekeeper.models import (
@@ -159,6 +162,63 @@ async def test_pipeline_orchestration(mock_engine):
 
 
 @pytest.mark.asyncio
+async def test_speculative_sentence_guardrail(mock_engine):
+    """Verify speculative sentence-level guardrail detects and flags early hallucinations."""
+    guard = SpeculativeSentenceGuardrail(mock_engine, early_kill_threshold=0.75)
+    
+    # 1. Test sentence splitting
+    text_stream = "这是第一句话。这是第二句话！还有未完成的一半"
+    sentences, leftover = guard.split_sentences(text_stream)
+    assert len(sentences) == 2
+    assert sentences[0] == "这是第一句话。"
+    assert sentences[1] == "这是第二句话！"
+    assert leftover == "还有未完成的一半"
+
+    # 2. Test sentence hallucination check
+    is_hallu, prob = await guard.verify_sentence(
+        query="公司福利",
+        sentence="我们每个月发一万块宠物补助。__MOCK_HALLUCINATION__",
+        evidence_chunks=["公司只提供午餐补贴。"],
+    )
+    assert is_hallu is True
+    assert prob >= 0.75
+
+
+def test_in_memory_hybrid_vector_store():
+    """Verify native in-memory hybrid store (BM25 + Dense RRF)."""
+    store = InMemoryHybridStore()
+    docs = [
+        ChunkItem(id="d1", content="员工差旅补贴：每日交通补助 100 元，住宿凭票实报实销。"),
+        ChunkItem(id="d2", content="员工休假制度：年假每年五天，未休完可折算。"),
+        ChunkItem(id="d3", content="公司前台电话与访客登记规范。"),
+    ]
+    store.upsert_chunks(docs)
+
+    results = store.search("差旅交通补贴多少钱？", top_k=2)
+    assert len(results) == 2
+    # Top 1 should be d1
+    assert results[0].id == "d1"
+
+
+@pytest.mark.asyncio
+async def test_audit_sink_and_export():
+    """Verify audit event logging and Jev dataset export."""
+    await audit_sink.log_event("STAGE1_ARBITRATION", {
+        "query": "你好",
+        "needs_external_knowledge": False,
+        "confidence": 0.95,
+    })
+    await audit_sink.log_event("STAGE3_HALLUCINATION_BLOCKED", {
+        "query": "薪资查询",
+        "evidence": ["无此记录"],
+        "answer": "月薪十万",
+        "hallucination_prob": 0.92,
+    })
+    count = audit_sink.export_jev_finetuning_dataset()
+    assert count >= 2
+
+
+@pytest.mark.asyncio
 async def test_api_server_proxy_and_metrics():
     """Verify FastAPI server proxy (non-stream & SSE stream) and metrics endpoints."""
     transport = httpx.ASGITransport(app=app)
@@ -209,3 +269,8 @@ async def test_api_server_proxy_and_metrics():
         assert res_reload.status_code == 200
         assert res_reload.json()["status"] == "reloaded"
         assert settings.RERANK_SCORE_THRESHOLD == 3.8
+
+        # 6. Dashboard HTML endpoint
+        res_dash = await client.get("/dashboard")
+        assert res_dash.status_code == 200
+        assert "RAG-Gatekeeper" in res_dash.text
