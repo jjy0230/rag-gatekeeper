@@ -1,4 +1,4 @@
-"""End-to-end RAG Gatekeeper Pipeline orchestration."""
+"""End-to-end RAG Gatekeeper Pipeline orchestration with Semantic Cache, De-referencing, Compression & Citations."""
 
 import time
 import logging
@@ -7,6 +7,10 @@ from rag_gatekeeper.engine.interface import DecisionEngine
 from rag_gatekeeper.stages.stage1_arbitration import RetrievalArbitrator
 from rag_gatekeeper.stages.stage2_rerank import ChunkReranker
 from rag_gatekeeper.stages.stage3_guardrail import HallucinationGuardrail
+from rag_gatekeeper.semantic_cache import semantic_cache
+from rag_gatekeeper.query_rewriter import query_rewriter
+from rag_gatekeeper.context_compressor import context_compressor
+from rag_gatekeeper.citation_injector import citation_injector
 from rag_gatekeeper.models import (
     ArbitrationRequest,
     RerankRequest,
@@ -20,9 +24,9 @@ logger = logging.getLogger(__name__)
 
 
 class RAGGatekeeperPipeline:
-    """Orchestrates Stage 1 (Arbitration), Vector Retrieval, Stage 2 (Rerank),
+    """Orchestrates Semantic Cache -> De-referencing -> Stage 1 -> Retrieval ->
 
-    LLM Generation, and Stage 3 (Guardrail) in a clean, observable pipeline.
+    Stage 2 -> Compression -> LLM -> Stage 3 -> Footnote Citation Injection.
     """
 
     def __init__(self, engine: DecisionEngine):
@@ -37,44 +41,67 @@ class RAGGatekeeperPipeline:
         retriever_hook: Optional[Callable[[str], Awaitable[list[ChunkItem]]]] = None,
         generator_hook: Optional[Callable[[str, list[str]], Awaitable[str]]] = None,
     ) -> PipelineResponse:
-        """Run the end-to-end gatekeeper workflow.
-        
-        Args:
-            request: Pipeline input data.
-            retriever_hook: Optional async callable (query: str) -> list[ChunkItem].
-            generator_hook: Optional async callable (query: str, contexts: list[str]) -> str.
-            
-        Returns:
-            PipelineResponse containing execution details and intermediate stage metrics.
-        """
         start_time = time.perf_counter()
+
+        # ----------------------------------------------------
+        # Step 0: Semantic Cache Gatekeeper (< 2ms)
+        # ----------------------------------------------------
+        if request.enable_semantic_cache:
+            cached_entry = semantic_cache.get(request.query)
+            if cached_entry:
+                overhead = (time.perf_counter() - start_time) * 1000.0
+                logger.info("Semantic cache HIT for query: %s", request.query)
+                return PipelineResponse(
+                    query=request.query,
+                    short_circuited=True,
+                    cache_hit=True,
+                    arbitration=None,
+                    rerank=None,
+                    guardrail=None,
+                    final_output=cached_entry["response"],
+                    citations=cached_entry.get("citations", []),
+                    total_overhead_latency_ms=overhead,
+                )
+
+        # ----------------------------------------------------
+        # Step 0.5: Multi-turn Pronoun De-referencing & Query Rewriting
+        # ----------------------------------------------------
+        active_query, was_rewritten = query_rewriter.rewrite_query(
+            request.query, request.last_turn_query
+        )
 
         # ----------------------------------------------------
         # Stage 1: Retrieval Arbitration Gate (~8ms)
         # ----------------------------------------------------
-        arb_res = await self.stage1.arbitrate(ArbitrationRequest(query=request.query))
+        arb_res = await self.stage1.arbitrate(ArbitrationRequest(query=active_query))
 
         # Check if short-circuited
         if not arb_res.needs_external_knowledge:
-            logger.info("Stage 1 Short-circuited: No retrieval needed for query: %s", request.query)
-            # Directly invoke generator without retrieval if provided
+            logger.info("Stage 1 Short-circuited: No retrieval needed for query: %s", active_query)
             final_output = None
             if generator_hook:
-                final_output = await generator_hook(request.query, [])
+                final_output = await generator_hook(active_query, [])
             elif request.generated_answer:
                 final_output = request.generated_answer
             else:
                 final_output = "【直连回答】此问题判定为通用常识或无需外部知识库支持，已绕过向量数据库直接生成。"
 
             overhead = (time.perf_counter() - start_time) * 1000.0
+            # Cache safe short-circuited answer
+            if request.enable_semantic_cache:
+                semantic_cache.set(request.query, final_output)
+
             return PipelineResponse(
                 query=request.query,
                 short_circuited=True,
+                cache_hit=False,
                 arbitration=arb_res,
                 rerank=None,
                 guardrail=None,
                 final_output=final_output,
+                citations=[],
                 total_overhead_latency_ms=overhead,
+                rewritten_query=active_query if was_rewritten else None,
             )
 
         # ----------------------------------------------------
@@ -82,7 +109,7 @@ class RAGGatekeeperPipeline:
         # ----------------------------------------------------
         candidate_chunks: list[ChunkItem] = []
         if retriever_hook:
-            candidate_chunks = await retriever_hook(request.query)
+            candidate_chunks = await retriever_hook(active_query)
         elif request.candidate_chunks:
             candidate_chunks = request.candidate_chunks
 
@@ -90,20 +117,31 @@ class RAGGatekeeperPipeline:
         # Stage 2: Rerank & Noise Filtering (~25ms)
         # ----------------------------------------------------
         rerank_res = await self.stage2.rerank(
-            RerankRequest(query=request.query, chunks=candidate_chunks)
+            RerankRequest(query=active_query, chunks=candidate_chunks)
         )
 
-        filtered_contexts = [sc.chunk.content for sc in rerank_res.filtered_chunks]
+        kept_chunk_objects = [sc.chunk for sc in rerank_res.filtered_chunks]
+
+        # ----------------------------------------------------
+        # Step 2.5: High-density Extractive Sentence Compression
+        # ----------------------------------------------------
+        if request.enable_compression and kept_chunk_objects:
+            compressed_chunks = context_compressor.compress_chunks(active_query, kept_chunk_objects)
+            effective_chunks = compressed_chunks
+        else:
+            effective_chunks = kept_chunk_objects
+
+        filtered_contexts = [c.content for c in effective_chunks]
 
         # ----------------------------------------------------
         # LLM Generation Phase
         # ----------------------------------------------------
         generated_answer = request.generated_answer
         if generator_hook and not generated_answer:
-            generated_answer = await generator_hook(request.query, filtered_contexts)
+            generated_answer = await generator_hook(active_query, filtered_contexts)
         elif not generated_answer:
             generated_answer = (
-                f"根据参考文档（共 {len(filtered_contexts)} 条），这是对于问题 '{request.query}' 的综合解答。"
+                f"根据参考文档（共 {len(filtered_contexts)} 条），这是对于问题 '{active_query}' 的综合解答。"
             )
 
         # ----------------------------------------------------
@@ -111,20 +149,38 @@ class RAGGatekeeperPipeline:
         # ----------------------------------------------------
         guardrail_res = await self.stage3.verify(
             GuardrailRequest(
-                query=request.query,
+                query=active_query,
                 answer=generated_answer,
                 evidence_chunks=filtered_contexts,
             )
         )
 
+        final_output_text = guardrail_res.final_answer
+        citation_records = []
+
+        # ----------------------------------------------------
+        # Step 3.5: Citation Footnote Injection (if not blocked)
+        # ----------------------------------------------------
+        if request.enable_citations and not guardrail_res.blocked and effective_chunks:
+            cite_res = citation_injector.inject_citations(final_output_text, effective_chunks)
+            final_output_text = cite_res.annotated_answer
+            citation_records = [c.model_dump() for c in cite_res.citations]
+
         overhead = (time.perf_counter() - start_time) * 1000.0
+
+        # Save to semantic cache if answer is deemed safe and not degraded
+        if request.enable_semantic_cache and not guardrail_res.blocked:
+            semantic_cache.set(request.query, final_output_text, citations=citation_records)
 
         return PipelineResponse(
             query=request.query,
             short_circuited=False,
+            cache_hit=False,
             arbitration=arb_res,
             rerank=rerank_res,
             guardrail=guardrail_res,
-            final_output=guardrail_res.final_answer,
+            final_output=final_output_text,
+            citations=citation_records,
             total_overhead_latency_ms=overhead,
+            rewritten_query=active_query if was_rewritten else None,
         )

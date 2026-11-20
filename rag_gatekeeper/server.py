@@ -18,6 +18,7 @@ from rag_gatekeeper.pipeline import RAGGatekeeperPipeline
 from rag_gatekeeper.proxy import GatewayProxy
 from rag_gatekeeper.vector_store import InMemoryHybridStore
 from rag_gatekeeper.audit_sink import audit_sink
+from rag_gatekeeper.semantic_cache import semantic_cache
 from rag_gatekeeper.models import (
     ArbitrationRequest,
     ArbitrationResponse,
@@ -132,6 +133,23 @@ async def reload_configuration(req: ConfigReloadRequest):
         stage1.reload_keywords(req.FORCE_RETRIEVAL_KEYWORDS)
     logger.info("Gateway configuration hot-reloaded: %s", updates)
     return {"status": "reloaded", "applied_updates": updates}
+
+
+# ==========================================
+# Semantic Cache Endpoints
+# ==========================================
+
+@app.get("/v1/gatekeeper/cache/stats")
+async def get_cache_statistics():
+    """Retrieve semantic cache hit/miss statistics and entry counts."""
+    return semantic_cache.stats()
+
+
+@app.post("/v1/gatekeeper/cache/clear")
+async def clear_cache():
+    """Clear all semantic cache entries."""
+    semantic_cache.clear()
+    return {"status": "cleared"}
 
 
 # ==========================================

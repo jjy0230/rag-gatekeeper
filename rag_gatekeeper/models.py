@@ -126,6 +126,12 @@ class PipelineRequest(BaseModel):
     generated_answer: Optional[str] = Field(
         default=None, description="Optional pre-generated LLM answer (if testing Stage 3 directly)"
     )
+    last_turn_query: Optional[str] = Field(
+        default=None, description="Optional previous query for multi-turn pronoun de-referencing"
+    )
+    enable_semantic_cache: bool = Field(default=True, description="Whether to check semantic cache first")
+    enable_citations: bool = Field(default=True, description="Whether to inject [1],[2] citation footnotes")
+    enable_compression: bool = Field(default=True, description="Whether to apply sentence-level context compression")
 
 
 class PipelineResponse(BaseModel):
@@ -133,8 +139,11 @@ class PipelineResponse(BaseModel):
     short_circuited: bool = Field(
         ..., description="True if vector retrieval was bypassed in Stage 1"
     )
-    arbitration: ArbitrationResponse
+    cache_hit: bool = Field(default=False, description="True if answer was served instantly from semantic cache")
+    arbitration: Optional[ArbitrationResponse] = None
     rerank: Optional[RerankResponse] = None
     guardrail: Optional[GuardrailResponse] = None
     final_output: Optional[str] = None
+    citations: list[dict] = Field(default_factory=list, description="Grounding source citations")
     total_overhead_latency_ms: float
+    rewritten_query: Optional[str] = None
