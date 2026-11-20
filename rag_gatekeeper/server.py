@@ -90,6 +90,16 @@ async def serve_dashboard():
     return HTMLResponse(content="<h1>Dashboard UI file not found</h1>", status_code=404)
 
 
+@app.get("/demo", response_class=HTMLResponse)
+async def serve_interactive_demo():
+    """Serve interactive full-lifecycle visual presentation demo."""
+    html_path = Path(__file__).resolve().parent / "ui" / "demo.html"
+    if html_path.exists():
+        with open(html_path, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    return HTMLResponse(content="<h1>Demo UI file not found</h1>", status_code=404)
+
+
 @app.get("/metrics")
 async def prometheus_metrics():
     """Expose Prometheus-compatible plaintext metrics."""

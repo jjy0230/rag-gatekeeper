@@ -379,3 +379,8 @@ async def test_api_server_proxy_and_metrics():
         res_dash = await client.get("/dashboard")
         assert res_dash.status_code == 200
         assert "RAG-Gatekeeper" in res_dash.text
+
+        # 8. Interactive Demo HTML endpoint
+        res_demo = await client.get("/demo")
+        assert res_demo.status_code == 200
+        assert "全景决策网关交互演示" in res_demo.text
