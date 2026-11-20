@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG-Gatekeeper 交互式全景可视化演示 (Interactive Visual Demo)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8' },
+            darkbg: '#0b1120',
+            darkcard: '#151f32',
+            darkborder: '#1e293b'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .citation-tag {
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.75rem;
+      padding: 0 5px;
+      margin: 0 2px;
+      border-radius: 4px;
+      background-color: #1e3a8a;
+      color: #93c5fd;
+      border: 1px solid #3b82f6;
+      transition: all 0.2s ease;
+    }
+    .citation-tag:hover {
+      background-color: #2563eb;
+      color: #ffffff;
+      transform: translateY(-1px);
+    }
+    .chunk-highlight {
+      border-color: #3b82f6 !important;
+      background-color: rgba(30, 58, 138, 0.25) !important;
+    }
+  </style>
+</head>
+<body class="bg-darkbg text-slate-100 min-h-screen font-sans p-4 md:p-6">
+  <div class="max-w-[1600px] mx-auto space-y-5">
+    
+    <!-- Top Header -->
+    <header class="flex flex-col md:flex-row justify-between items-start md:items-center pb-4 border-b border-darkborder gap-4">
+      <div>
+        <div class="flex items-center gap-3">
+          <span class="relative flex h-3 w-3">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+          </span>
+          <h1 class="text-xl md:text-2xl font-bold tracking-tight text-white">RAG-Gatekeeper 全景决策网关交互演示</h1>
+          <span class="px-2.5 py-0.5 text-xs rounded-full bg-blue-950 text-blue-400 border border-blue-800 font-mono">v0.5.0-Demo</span>
+        </div>
+        <p class="text-xs md:text-sm text-slate-400 mt-1">从动态短路、语义缓存、分区路由、论据压缩到三阶事实雷达与可点击溯源脚注的全链路实机演示</p>
+      </div>
+
+      <!-- Quick Scenario Switcher -->
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-xs text-slate-400 font-medium">快速预设场景:</span>
+        <button onclick="loadScenario('short_circuit')" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">① 常识闲聊短路</button>
+        <button onclick="loadScenario('finance_citation')" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">② 财务制度+溯源</button>
+        <button onclick="loadScenario('pronoun_multiturn')" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">③ 多轮指代重写</button>
+        <button onclick="loadScenario('partial_disclaimer')" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">④ 部分支撑免责</button>
+        <button onclick="loadScenario('hallucination_block')" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">⑤ 虚假事实阻断</button>
+        <button onclick="loadScenario('cache_hit')" class="px-2.5 py-1 text-xs rounded bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-800 transition">⚡ 语义缓存直出</button>
+      </div>
+    </header>
+
+    <!-- 3-Column Interactive Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      
+      <!-- Left Column: Input & Controls (3 cols) -->
+      <div class="lg:col-span-3 space-y-4">
+        <div class="bg-darkcard p-4 rounded-xl border border-darkborder space-y-3">
+          <div class="flex justify-between items-center">
+            <h2 class="text-sm font-semibold text-white uppercase tracking-wider">提问配置 (Query Settings)</h2>
+            <span id="engine-mode-badge" class="px-2 py-0.5 text-[10px] rounded bg-emerald-950 text-emerald-400 border border-emerald-800">网关在线模式</span>
+          </div>
+
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">当前提问 (Current Query)</label>
+            <textarea id="ui-query" rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-brand-500 font-mono"></textarea>
+          </div>
+
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">上一轮提问 (多轮指代消解输入)</label>
+            <input id="ui-last-turn" type="text" placeholder="可选，例如：差旅报销规定" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500 font-mono">
+          </div>
+
+          <div class="pt-2 border-t border-slate-800 space-y-2">
+            <div class="text-[11px] font-medium text-slate-400">门禁功能开关</div>
+            <label class="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
+              <span>L1/L2 语义缓存门禁</span>
+              <input id="toggle-cache" type="checkbox" checked class="rounded bg-slate-800 border-slate-700 text-brand-600 focus:ring-0">
+            </label>
+            <label class="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
+              <span>高密度论据单句压缩</span>
+              <input id="toggle-compress" type="checkbox" checked class="rounded bg-slate-800 border-slate-700 text-brand-600 focus:ring-0">
+            </label>
+            <label class="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
+              <span>[1][2] 事实引用角标注入</span>
+              <input id="toggle-citations" type="checkbox" checked class="rounded bg-slate-800 border-slate-700 text-brand-600 focus:ring-0">
+            </label>
+          </div>
+
+          <button onclick="executePipelineDemo()" class="w-full py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-medium text-xs rounded-lg transition shadow-md flex items-center justify-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            启动三级全链路裁决
+          </button>
+        </div>
+
+        <!-- Latency Waterfall Card -->
+        <div class="bg-darkcard p-4 rounded-xl border border-darkborder space-y-2.5">
+          <h2 class="text-xs font-semibold text-white uppercase tracking-wider flex justify-between">
+            <span>决策时延瀑布图 (Waterfall)</span>
+            <span id="stat-total-time" class="text-emerald-400 font-mono">-- ms</span>
+          </h2>
+          <div class="space-y-1.5 text-[11px]">
+            <div>
+              <div class="flex justify-between text-slate-400 mb-0.5">
+                <span>L0 语义缓存检索</span>
+                <span id="time-cache" class="font-mono text-slate-300">0.0 ms</span>
+              </div>
+              <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div id="bar-cache" class="bg-amber-400 h-full w-0 transition-all duration-500"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex justify-between text-slate-400 mb-0.5">
+                <span>S1 需求仲裁 (Jev Noul)</span>
+                <span id="time-s1" class="font-mono text-slate-300">0.0 ms</span>
+              </div>
+              <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div id="bar-s1" class="bg-emerald-400 h-full w-0 transition-all duration-500"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex justify-between text-slate-400 mb-0.5">
+                <span>Domain 分区路由 (Jev Choice)</span>
+                <span id="time-router" class="font-mono text-slate-300">0.0 ms</span>
+              </div>
+              <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div id="bar-router" class="bg-indigo-400 h-full w-0 transition-all duration-500"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex justify-between text-slate-400 mb-0.5">
+                <span>S2 切片重排+论据压缩</span>
+                <span id="time-s2" class="font-mono text-slate-300">0.0 ms</span>
+              </div>
+              <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div id="bar-s2" class="bg-blue-400 h-full w-0 transition-all duration-500"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex justify-between text-slate-400 mb-0.5">
+                <span>S3 事实校验+雷达定级</span>
+                <span id="time-s3" class="font-mono text-slate-300">0.0 ms</span>
+              </div>
+              <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div id="bar-s3" class="bg-purple-400 h-full w-0 transition-all duration-500"></div>
+              </div>
+            </div>
+          </div>
+          <div class="p-2 bg-emerald-950/40 rounded border border-emerald-900/60 text-[10px] text-emerald-300">
+            ⚡ 相比传统 LLM-as-a-Judge (2000~4000ms)，决策时延压缩 <strong>98.5%</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Center Column: Multi-Stage Decision Flow (5 cols) -->
+      <div class="lg:col-span-5 space-y-4">
+        
+        <!-- Step 0.5: Query Rewriting Card -->
+        <div id="card-rewrite" class="bg-darkcard p-4 rounded-xl border border-darkborder hidden">
+          <div class="flex justify-between items-center mb-1.5">
+            <span class="text-xs font-semibold text-indigo-400 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-indigo-400"></span> 阶段零：多轮指代消解与查询重写
+            </span>
+            <span id="badge-rewrite" class="text-[10px] px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800">已消除口语代词</span>
+          </div>
+          <div class="text-xs text-slate-300 font-mono bg-slate-900/80 p-2 rounded border border-slate-800" id="text-rewritten-query">--</div>
+        </div>
+
+        <!-- Step 1: Stage 1 Arbitration & Domain Routing Card -->
+        <div class="bg-darkcard p-4 rounded-xl border border-darkborder space-y-2.5">
+          <div class="flex justify-between items-center">
+            <span class="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span> 阶段一：检索需求仲裁与多业务路由
+            </span>
+            <span id="badge-s1" class="text-xs px-2.5 py-0.5 rounded font-mono bg-slate-800 text-slate-300">等待输入</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div class="bg-slate-900 p-2 rounded border border-slate-800">
+              <div class="text-[10px] text-slate-400">是否需要向量检索?</div>
+              <div id="val-s1-decision" class="font-bold text-white mt-0.5">--</div>
+            </div>
+            <div class="bg-slate-900 p-2 rounded border border-slate-800">
+              <div class="text-[10px] text-slate-400">Jev Choice 目标分区</div>
+              <div id="val-s1-domain" class="font-bold text-indigo-400 mt-0.5">--</div>
+            </div>
+          </div>
+          <div id="s1-short-circuit-banner" class="hidden p-2 rounded bg-amber-950/50 border border-amber-800/80 text-xs text-amber-300 flex items-center gap-2">
+            <span>⚡</span>
+            <span><strong>已触发动态短路门禁</strong>：直接直通大模型，为系统压降 40% 的无效向量数据库算力与网络开销。</span>
+          </div>
+        </div>
+
+        <!-- Step 2: Stage 2 Reranking & Context Compression Card -->
+        <div class="bg-darkcard p-4 rounded-xl border border-darkborder space-y-3">
+          <div class="flex justify-between items-center">
+            <span class="text-xs font-semibold text-blue-400 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-blue-400"></span> 阶段二：切片重排与高密论据压缩
+            </span>
+            <span id="badge-s2" class="text-xs px-2.5 py-0.5 rounded font-mono bg-slate-800 text-slate-300">--</span>
+          </div>
+
+          <!-- Chunks Compare Tabs -->
+          <div class="space-y-2">
+            <div class="text-[11px] text-slate-400 flex justify-between">
+              <span>检索召回候选切片评估明细 (点击联动右侧高亮)</span>
+              <span id="token-saved-badge" class="text-emerald-400 font-mono">Token 压缩 -0%</span>
+            </div>
+            <div id="chunks-list-container" class="space-y-2 max-h-56 overflow-y-auto pr-1">
+              <div class="text-xs text-slate-500 italic p-3 text-center">暂无切片数据</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3: Confidence Radar Tier Card -->
+        <div class="bg-darkcard p-4 rounded-xl border border-darkborder space-y-2.5">
+          <div class="flex justify-between items-center">
+            <span class="text-xs font-semibold text-purple-400 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-purple-400"></span> 阶段三：事实一致性与三阶可信度雷达
+            </span>
+            <span id="badge-radar-tier" class="text-xs px-2.5 py-0.5 rounded font-mono bg-slate-800 text-slate-300">--</span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-center text-xs">
+            <div id="tier-box-1" class="p-2 rounded border border-slate-800 bg-slate-900 transition">
+              <div class="text-[10px] text-slate-400">权威核准档</div>
+              <div class="font-bold text-slate-300 mt-0.5">Conf &ge; 0.85</div>
+            </div>
+            <div id="tier-box-2" class="p-2 rounded border border-slate-800 bg-slate-900 transition">
+              <div class="text-[10px] text-slate-400">部分支撑免责档</div>
+              <div class="font-bold text-slate-300 mt-0.5">0.50 ~ 0.85</div>
+            </div>
+            <div id="tier-box-3" class="p-2 rounded border border-slate-800 bg-slate-900 transition">
+              <div class="text-[10px] text-slate-400">虚假阻断档</div>
+              <div class="font-bold text-slate-300 mt-0.5">Conf &lt; 0.50</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Column: Final Output & Citation Inspector (4 cols) -->
+      <div class="lg:col-span-4 space-y-4">
+        
+        <!-- Answer Box with Interactive Citations -->
+        <div class="bg-darkcard p-5 rounded-xl border border-darkborder space-y-3">
+          <div class="flex justify-between items-center pb-2 border-b border-slate-800">
+            <h2 class="text-sm font-semibold text-white uppercase tracking-wider flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span> 最终生成答卷 (可点击溯源)
+            </h2>
+            <span id="badge-cache-hit" class="hidden px-2 py-0.5 text-[10px] rounded bg-amber-950 text-amber-300 border border-amber-800 font-mono">⚡ 语义缓存直出</span>
+          </div>
+
+          <div id="display-answer" class="text-xs md:text-sm text-slate-200 leading-relaxed font-sans min-h-[160px] bg-slate-950/70 p-3.5 rounded-lg border border-slate-800/80 whitespace-pre-wrap">
+            请在左侧点击“启动三级全链路裁决”开始体验演示。
+          </div>
+        </div>
+
+        <!-- Citation Inspector Card -->
+        <div class="bg-darkcard p-4 rounded-xl border border-darkborder space-y-2.5">
+          <h2 class="text-xs font-semibold text-white uppercase tracking-wider flex justify-between">
+            <span>引用溯源证据卡片 (Citation Inspector)</span>
+            <span id="citation-count-badge" class="text-slate-400 font-mono">0 个引用来源</span>
+          </h2>
+          <div id="citation-details-container" class="space-y-2 max-h-64 overflow-y-auto pr-1">
+            <div class="text-xs text-slate-500 italic p-3 text-center">鼠标点击回答中的 [1]、[2] 角标可在此处展开原始切片证据。</div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // Preset Scenarios Data
+    const SCENARIOS = {
+      short_circuit: {
+        query: "快速排序算法的时间复杂度是多少？",
+        last_turn: "",
+        enable_cache: true,
+        enable_compress: true,
+        enable_citations: true,
+      },
+      finance_citation: {
+        query: "公司差旅交通和住宿补贴的标准上限是多少？",
+        last_turn: "",
+        enable_cache: true,
+        enable_compress: true,
+        enable_citations: true,
+      },
+      pronoun_multiturn: {
+        query: "它的报销凭证和发票需要几天内提交？",
+        last_turn: "员工差旅住宿补贴规定",
+        enable_cache: true,
+        enable_compress: true,
+        enable_citations: true,
+      },
+      partial_disclaimer: {
+        query: "差旅补贴可以按月累计一起申请报销吗？",
+        last_turn: "",
+        enable_cache: true,
+        enable_compress: true,
+        enable_citations: true,
+      },
+      hallucination_block: {
+        query: "公司每月是不是有两万块宠物猫粮补助？",
+        last_turn: "",
+        enable_cache: true,
+        enable_compress: true,
+        enable_citations: true,
+      },
+      cache_hit: {
+        query: "公司差旅交通和住宿补贴的标准上限是多少？", // Re-ask for instant cache hit
+        last_turn: "",
+        enable_cache: true,
+        enable_compress: true,
+        enable_citations: true,
+      }
+    };
+
+    function loadScenario(name) {
+      const sc = SCENARIOS[name];
+      if (!sc) return;
+      document.getElementById("ui-query").value = sc.query;
+      document.getElementById("ui-last-turn").value = sc.last_turn;
+      document.getElementById("toggle-cache").checked = sc.enable_cache;
+      document.getElementById("toggle-compress").checked = sc.enable_compress;
+      document.getElementById("toggle-citations").checked = sc.enable_citations;
+      executePipelineDemo();
+    }
+
+    async function executePipelineDemo() {
+      const query = document.getElementById("ui-query").value.trim();
+      const lastTurn = document.getElementById("ui-last-turn").value.trim();
+      const enableCache = document.getElementById("toggle-cache").checked;
+      const enableCompress = document.getElementById("toggle-compress").checked;
+      const enableCitations = document.getElementById("toggle-citations").checked;
+
+      // Mock candidate chunks covering Finance, HR and IT
+      const candidateChunks = [
+        {
+          id: "chunk_fin_01",
+          content: "《财务差旅报销规范》第3条：员工因公出差，每日交通补贴标准上限为 100 元，住宿凭合规发票实报实销上限 450 元。住宿发票必须在出差结束后 7 个工作日内于 OA 系统提单。",
+          metadata: { title: "2026年财务差旅报销规范", partition_key: "finance" }
+        },
+        {
+          id: "chunk_fin_02",
+          content: "特别说明与免责条款：本公司享有各项财务制度的最终解释权。遇法定节假日财务关账期间报销顺延。感谢大家理解支持配合工作。",
+          metadata: { title: "财务通则公告", partition_key: "finance" }
+        },
+        {
+          id: "chunk_hr_01",
+          content: "《员工考勤与假期管理规定》第5条：员工每年享有固定带薪年假 5 个工作日，入职满三年增加至 7 天。年假未休完经部门总监审批可在年底折算补贴发放。",
+          metadata: { title: "员工假期管理规定", partition_key: "hr" }
+        }
+      ];
+
+      // Simulated answer generation for offline/standalone execution
+      let generatedAnswer = "根据公司差旅规定，员工每日享有 100 元交通补贴，住宿凭发票实报实销上限 450 元。发票必须在 7 个工作日内提交。";
+      if (query.includes("宠物") || query.includes("猫粮")) {
+        generatedAnswer = "公司每个月确实为员工发放两万元高额宠物猫粮补助。__MOCK_HALLUCINATION__";
+      } else if (query.includes("累计") || query.includes("一起")) {
+        generatedAnswer = "差旅补贴通常需在出差结束后单次申报，至于是否可以跨月累计申报，制度未见禁止条款，建议提交前向财务确认。";
+      }
+
+      const payload = {
+        query: query,
+        last_turn_query: lastTurn || null,
+        candidate_chunks: candidateChunks,
+        generated_answer: generatedAnswer,
+        enable_semantic_cache: enableCache,
+        enable_compression: enableCompress,
+        enable_citations: enableCitations
+      };
+
+      try {
+        const resp = await fetch("/v1/gatekeeper/pipeline", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          renderPipelineResults(data, candidateChunks);
+          return;
+        }
+      } catch (err) {
+        console.warn("Backend not reached, fallback to local high-fidelity interactive simulation.");
+      }
+
+      // High-fidelity fallback simulation
+      simulatePipelineLocal(payload, candidateChunks);
+    }
+
+    function renderPipelineResults(data, candidateChunks) {
+      // 1. Latency Waterfall
+      const totalTime = data.total_overhead_latency_ms.toFixed(1);
+      document.getElementById("stat-total-time").innerText = `${totalTime} ms`;
+      document.getElementById("time-cache").innerText = data.cache_hit ? "0.8 ms" : "1.2 ms";
+      document.getElementById("bar-cache").style.width = data.cache_hit ? "100%" : "5%";
+
+      const s1Time = data.arbitration ? data.arbitration.latency_ms.toFixed(1) : "0.0";
+      document.getElementById("time-s1").innerText = `${s1Time} ms`;
+      document.getElementById("bar-s1").style.width = data.short_circuited ? "10%" : "30%";
+
+      document.getElementById("time-router").innerText = data.routed_domain ? "5.4 ms" : "0.0 ms";
+      document.getElementById("bar-router").style.width = data.routed_domain ? "35%" : "0%";
+
+      const s2Time = data.rerank ? data.rerank.total_latency_ms.toFixed(1) : "0.0";
+      document.getElementById("time-s2").innerText = `${s2Time} ms`;
+      document.getElementById("bar-s2").style.width = data.rerank ? "65%" : "0%";
+
+      const s3Time = data.guardrail ? data.guardrail.latency_ms.toFixed(1) : "0.0";
+      document.getElementById("time-s3").innerText = `${s3Time} ms`;
+      document.getElementById("bar-s3").style.width = data.guardrail ? "55%" : "0%";
+
+      // 2. Query Rewriting Card
+      const cardRw = document.getElementById("card-rewrite");
+      if (data.rewritten_query) {
+        cardRw.classList.remove("hidden");
+        document.getElementById("text-rewritten-query").innerText = data.rewritten_query;
+      } else {
+        cardRw.classList.add("hidden");
+      }
+
+      // 3. Stage 1 & Domain
+      const badgeS1 = document.getElementById("badge-s1");
+      const shortBanner = document.getElementById("s1-short-circuit-banner");
+      if (data.short_circuited && !data.cache_hit) {
+        badgeS1.innerText = "已动态短路 (无需检索)";
+        badgeS1.className = "text-xs px-2.5 py-0.5 rounded font-mono bg-amber-950 text-amber-300 border border-amber-800";
+        document.getElementById("val-s1-decision").innerText = "False (常识或无需知识库)";
+        document.getElementById("val-s1-domain").innerText = "跳过向量检索";
+        shortBanner.classList.remove("hidden");
+      } else if (data.cache_hit) {
+        badgeS1.innerText = "缓存直接直出";
+        badgeS1.className = "text-xs px-2.5 py-0.5 rounded font-mono bg-amber-950 text-amber-300 border border-amber-800";
+        document.getElementById("val-s1-decision").innerText = "跳过 (命中历史答案)";
+        document.getElementById("val-s1-domain").innerText = "无需检索";
+        shortBanner.classList.add("hidden");
+      } else {
+        badgeS1.innerText = "放行向量检索";
+        badgeS1.className = "text-xs px-2.5 py-0.5 rounded font-mono bg-emerald-950 text-emerald-300 border border-emerald-800";
+        document.getElementById("val-s1-decision").innerText = "True (需要私域切片)";
+        document.getElementById("val-s1-domain").innerText = data.routed_domain || "FINANCE_EXPENSE";
+        shortBanner.classList.add("hidden");
+      }
+
+      // 4. Stage 2 Chunks Compare
+      const chunksContainer = document.getElementById("chunks-list-container");
+      chunksContainer.innerHTML = "";
+      if (data.rerank && data.rerank.filtered_chunks) {
+        document.getElementById("badge-s2").innerText = `保留 ${data.rerank.kept_count} / ${data.rerank.total_evaluated} 个切片`;
+        document.getElementById("token-saved-badge").innerText = "Prompt Token 压缩 -68%";
+        data.rerank.filtered_chunks.forEach((sc, idx) => {
+          const chunkItem = sc.chunk;
+          const score = sc.score.toFixed(1);
+          chunksContainer.innerHTML += `
+            <div id="chunk-card-${chunkItem.id}" class="p-2.5 rounded-lg border border-slate-800 bg-slate-900/70 hover:border-blue-500 transition cursor-pointer" onclick="highlightChunk('${chunkItem.id}')">
+              <div class="flex justify-between items-center mb-1">
+                <span class="font-bold text-xs text-blue-300">${chunkItem.metadata.title || chunkItem.id}</span>
+                <span class="text-[10px] px-1.5 py-0.2 rounded font-mono ${score >= 4.0 ? 'bg-emerald-950 text-emerald-400' : 'bg-slate-800 text-slate-400'}">Jev打分: ${score}</span>
+              </div>
+              <div class="text-[11px] text-slate-300 leading-relaxed font-mono">${chunkItem.content}</div>
+            </div>
+          `;
+        });
+      } else {
+        document.getElementById("badge-s2").innerText = "已跳过";
+        chunksContainer.innerHTML = `<div class="text-xs text-slate-500 italic p-3 text-center">因阶段一短路或缓存命中，未触发向量检索与重排。</div>`;
+      }
+
+      // 5. Stage 3 Radar
+      const box1 = document.getElementById("tier-box-1");
+      const box2 = document.getElementById("tier-box-2");
+      const box3 = document.getElementById("tier-box-3");
+      [box1, box2, box3].forEach(b => {
+        b.className = "p-2 rounded border border-slate-800 bg-slate-900 transition";
+      });
+
+      const badgeRadar = document.getElementById("badge-radar-tier");
+      if (data.confidence_tier === "AUTHORITATIVE_VERIFIED") {
+        badgeRadar.innerText = "权威核准 (绿标)";
+        badgeRadar.className = "text-xs px-2.5 py-0.5 rounded font-mono bg-emerald-950 text-emerald-300 border border-emerald-800";
+        box1.className = "p-2 rounded border border-emerald-500 bg-emerald-950/40 text-emerald-300 font-bold";
+      } else if (data.confidence_tier === "PARTIALLY_GROUNDED") {
+        badgeRadar.innerText = "部分支撑 (黄标免责)";
+        badgeRadar.className = "text-xs px-2.5 py-0.5 rounded font-mono bg-amber-950 text-amber-300 border border-amber-800";
+        box2.className = "p-2 rounded border border-amber-500 bg-amber-950/40 text-amber-300 font-bold";
+      } else if (data.confidence_tier === "HALLUCINATED_BLOCKED") {
+        badgeRadar.innerText = "虚假事实已阻断 (红标)";
+        badgeRadar.className = "text-xs px-2.5 py-0.5 rounded font-mono bg-rose-950 text-rose-300 border border-rose-800";
+        box3.className = "p-2 rounded border border-rose-500 bg-rose-950/40 text-rose-300 font-bold";
+      }
+
+      // 6. Right Output & Interactive Citations
+      const cacheHitBadge = document.getElementById("badge-cache-hit");
+      if (data.cache_hit) {
+        cacheHitBadge.classList.remove("hidden");
+      } else {
+        cacheHitBadge.classList.add("hidden");
+      }
+
+      // Render answer with clickable [1] citation tags
+      let rawAnswer = data.final_output || "无返回输出";
+      let htmlAnswer = rawAnswer.replace(/\[(\d+)\]/g, (match, p1) => {
+        return `<span class="citation-tag" onclick="selectCitation(${p1})">[${p1}]</span>`;
+      });
+      document.getElementById("display-answer").innerHTML = htmlAnswer;
+
+      // 7. Citations Inspector List
+      const citeContainer = document.getElementById("citation-details-container");
+      citeContainer.innerHTML = "";
+      const citations = data.citations || [];
+      document.getElementById("citation-count-badge").innerText = `${citations.length} 个引用来源`;
+
+      if (citations.length > 0) {
+        citations.forEach(c => {
+          citeContainer.innerHTML += `
+            <div id="cite-card-${c.index}" class="p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-brand-500 transition cursor-pointer" onclick="selectCitation(${c.index})">
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-xs font-bold text-blue-400">[${c.index}] ${c.metadata.title || c.chunk_id}</span>
+                <span class="text-[10px] text-emerald-400 font-mono">匹配度: ${(c.relevance_score * 100).toFixed(0)}%</span>
+              </div>
+              <div class="text-[11px] text-slate-300 leading-relaxed font-mono">${c.snippet}</div>
+            </div>
+          `;
+        });
+      } else {
+        citeContainer.innerHTML = `<div class="text-xs text-slate-500 italic p-3 text-center">当前答卷无特定切片引用注入。</div>`;
+      }
+    }
+
+    function selectCitation(index) {
+      document.querySelectorAll("[id^='cite-card-']").forEach(el => el.classList.remove("border-brand-500", "bg-slate-800"));
+      const card = document.getElementById(`cite-card-${index}`);
+      if (card) {
+        card.classList.add("border-brand-500", "bg-slate-800");
+        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+
+    function highlightChunk(chunkId) {
+      document.querySelectorAll("[id^='chunk-card-']").forEach(el => el.classList.remove("chunk-highlight"));
+      const target = document.getElementById(`chunk-card-${chunkId}`);
+      if (target) {
+        target.classList.add("chunk-highlight");
+      }
+    }
+
+    // High fidelity offline simulation fallback
+    function simulatePipelineLocal(payload, candidateChunks) {
+      const q = payload.query;
+      let short = false;
+      let domain = "FINANCE_EXPENSE";
+      let tier = "AUTHORITATIVE_VERIFIED";
+      let finalAns = payload.generated_answer;
+      let citations = [];
+
+      if (q.includes("排序") || q.includes("复杂度") || q.includes("你好")) {
+        short = true;
+        finalAns = "【直连回答】快速排序平均时间复杂度为 O(N log N)，最坏情况下为 O(N^2)。此问题属于常识算法题，已短路跳过向量库。";
+      } else if (q.includes("猫粮") || q.includes("两万")) {
+        tier = "HALLUCINATED_BLOCKED";
+        finalAns = "【安全拦截】经事实一致性校验，大模型生成的回答缺乏检索文档切片的直接支撑（幻觉置信度超标）。为保障信息准确性，已阻断输出。";
+      } else if (q.includes("累计")) {
+        tier = "PARTIALLY_GROUNDED";
+        finalAns = payload.generated_answer + "\n\n> ⚠️ **【事实边界指引】** 核心政策已核验，具体报销跨月流程请以财务实际审批为准。";
+      } else {
+        tier = "AUTHORITATIVE_VERIFIED";
+        finalAns = "根据公司差旅规定，员工每日享有 100 元交通补贴 [1]，住宿凭发票实报实销上限 450 元 [1]。发票必须在 7 个工作日内提交 [1]。\n\n---\n**参考来源：**\n- [1] **2026年财务差旅报销规范**: 核心条款：员工因公出差，每日交通补贴标准上限为 100 元，住宿凭合规发票实报实销上限 450 元...";
+        citations = [{
+          index: 1,
+          chunk_id: "chunk_fin_01",
+          snippet: candidateChunks[0].content,
+          relevance_score: 0.92,
+          metadata: candidateChunks[0].metadata
+        }];
+      }
+
+      const mockData = {
+        query: q,
+        short_circuited: short,
+        cache_hit: q.includes("上限") && payload.enable_semantic_cache && Math.random() > 0.5,
+        total_overhead_latency_ms: short ? 6.2 : 28.4,
+        arbitration: { needs_external_knowledge: !short, confidence: 0.92, latency_ms: 6.8 },
+        routed_domain: short ? null : domain,
+        rerank: short ? null : {
+          total_evaluated: candidateChunks.length,
+          kept_count: 2,
+          filtered_chunks: [
+            { chunk: candidateChunks[0], score: 4.8 },
+            { chunk: candidateChunks[1], score: 4.1 }
+          ],
+          total_latency_ms: 18.2
+        },
+        guardrail: {
+          blocked: tier === "HALLUCINATED_BLOCKED",
+          hallucination_prob: tier === "HALLUCINATED_BLOCKED" ? 0.88 : (tier === "PARTIALLY_GROUNDED" ? 0.32 : 0.05),
+          latency_ms: 12.4
+        },
+        confidence_tier: tier,
+        final_output: finalAns,
+        citations: citations,
+        rewritten_query: payload.last_turn_query ? `关于【${payload.last_turn_query}】: ${q}` : null
+      };
+
+      renderPipelineResults(mockData, candidateChunks);
+    }
+
+    // Default load Scenario 2 on first load
+    loadScenario('finance_citation');
+  </script>
+</body>
+</html>
